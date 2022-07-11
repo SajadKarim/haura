@@ -34,7 +34,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc,
     },
-    thread, path::Path,
+    thread,
 };
 
 mod dataset;
@@ -106,7 +106,7 @@ where
     type Dmu;
 
     /// Separate actions to perform before building the database, e.g. setting up metrics
-    fn pre_build(&self) {}
+    fn pre_build(&self) {println!("\n..does nothing!!")}
     /// Assemble a new storage layer unit from `self`
     fn new_spu(&self) -> Result<Self::Spu>;
     /// Assemble a new [handler::Handler] for `spu`, optionally configured from `self`
@@ -194,15 +194,6 @@ impl Default for DatabaseConfiguration {
     }
 }
 
-impl DatabaseConfiguration {
-    /// Serialize the configuration to a given path in the json format.
-    pub fn write_to_json<P: AsRef<Path>>(&self,path: P) -> Result<()> {
-        let file = std::fs::OpenOptions::new().write(true).truncate(true).create(true).open(path)?;
-        serde_json::to_writer_pretty(file, &self).map_err(|e| crate::database::errors::Error::with_chain(e, ErrorKind::SerializeFailed))?;
-        Ok(())
-    }
-}
-
 impl DatabaseBuilder for DatabaseConfiguration {
     type Spu = StoragePoolUnit<XxHash>;
     type Dmu = RootDmu;
@@ -216,7 +207,7 @@ impl DatabaseBuilder for DatabaseConfiguration {
             root_tree_inner: AtomicOption::new(),
             root_tree_snapshot: RwLock::new(None),
             current_generation: SeqLock::new(Generation(1)),
-            free_space: HashMap::from_iter((0..spu.storage_class_count()).flat_map(|class| {
+            free_space: HashMap::from_iter((0..spu.storage_class_count()).flat_map(|class| { println!("\n.. class = {}, disk count = {}", class, spu.disk_count(class));
                 (0..spu.disk_count(class)).map(move |disk_id| ((class, disk_id), AtomicU64::new(0)))
             })),
             delayed_messages: Mutex::new(Vec::new()),
@@ -229,7 +220,7 @@ impl DatabaseBuilder for DatabaseConfiguration {
     fn new_dmu(&self, spu: Self::Spu, handler: handler::Handler) -> Self::Dmu {
         let mut strategy: [[Option<u8>; NUM_STORAGE_CLASSES]; NUM_STORAGE_CLASSES] =
             [[None; NUM_STORAGE_CLASSES]; NUM_STORAGE_CLASSES];
-
+        println!("\n.. strategy: {:?}", strategy);
         for (dst, src) in strategy.iter_mut().zip(self.alloc_strategy.iter()) {
             assert!(
                 src.len() < NUM_STORAGE_CLASSES,
@@ -240,7 +231,7 @@ impl DatabaseBuilder for DatabaseConfiguration {
                 *dst = Some(*src);
             }
         }
-
+        println!("\n.. strategy: {:?}", strategy);
         Dmu::new(
             self.compression.to_builder(),
             XxHashBuilder,
@@ -262,6 +253,7 @@ impl DatabaseBuilder for DatabaseConfiguration {
 
         let root_ptr = if let AccessMode::OpenIfExists | AccessMode::OpenOrCreate = self.access_mode
         {
+            println!("\n.. trying fetching superblocks.");
             match Superblock::<ObjectPointer>::fetch_superblocks(dmu.pool()) {
                 Ok(None) if self.access_mode == AccessMode::OpenIfExists => {
                     bail!(ErrorKind::InvalidSuperblock)
@@ -304,12 +296,15 @@ impl DatabaseBuilder for DatabaseConfiguration {
                 let dmu = tree.dmu();
                 for class in 0..dmu.pool().storage_class_count() {
                     for disk_id in 0..dmu.pool().disk_count(class) {
+                        println!("\n..................disk_id {} {}", disk_id, dmu.pool().disk_count(class));
                         dmu.allocate_raw_at(DiskOffset::new(class, disk_id, Block(0)), Block(2))
                             .chain_err(|| "Superblock allocation failed")?;
                     }
                 }
             }
+
             let root_ptr = tree.sync()?;
+            //panic!("..stop..");
             Ok((tree, root_ptr))
         }
     }
@@ -361,11 +356,6 @@ impl Database<DatabaseConfiguration> {
             ..Default::default()
         })
     }
-
-    /// Write the current configuration to the specified path in the json format.
-    pub fn write_config_json<P: AsRef<Path>>(&self, p: P) -> Result<()> {
-        self.builder.write_to_json(p)
-    }
 }
 
 impl<Config: DatabaseBuilder> Database<Config> {
@@ -375,6 +365,8 @@ impl<Config: DatabaseBuilder> Database<Config> {
         builder.pre_build();
         let spl = builder.new_spu()?;
         let handler = builder.new_handler(&spl);
+        println!("\n... insdie Database >> {:?}", handler.free_space);
+
         let dmu = Arc::new(builder.new_dmu(spl, handler));
         let (tree, root_ptr) = builder.select_root_tree(dmu)?;
 

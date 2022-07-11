@@ -26,7 +26,7 @@ pub struct Statistics {
     pub failed_writes: Block<u64>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct AtomicStatistics {
     read: AtomicU64,
     written: AtomicU64,
@@ -221,13 +221,19 @@ pub use self::mirror::Mirror;
 mod mem;
 pub use self::mem::Memory;
 
+mod pmemfile;
+pub use self::pmemfile::PMEMFile;
+
 #[enum_dispatch(Vdev, VdevRead, VdevLeafWrite, VdevLeafRead)]
+#[derive(Debug)]
 pub(crate) enum Leaf {
     File,
     Memory,
+    PMEMFile,
 }
 
 #[enum_dispatch(Vdev, VdevWrite, VdevRead)]
+#[derive(Debug)]
 pub(crate) enum Dev {
     Leaf(Leaf),
     Mirror(Mirror<Leaf>),

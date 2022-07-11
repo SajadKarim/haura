@@ -13,6 +13,7 @@ const SEGMENT_SIZE_LOG_2: usize = 18;
 const SEGMENT_SIZE_MASK: usize = SEGMENT_SIZE - 1;
 
 /// Simple first-fit bitmap allocator
+#[derive(Debug)]
 pub struct SegmentAllocator {
     data: BitArr!(for SEGMENT_SIZE, in Lsb0, u8),
 }
@@ -70,6 +71,7 @@ impl SegmentAllocator {
 
         let start_idx = offset as usize;
         let end_idx = (offset + size) as usize;
+        println!("\n.. start and end indices...{} {}", start_idx, end_idx);
         if self.data[start_idx..end_idx].any() {
             return false;
         }

@@ -2,94 +2,84 @@ use super::{
     errors::*, AtomicStatistics, Block, Result, ScrubResult, Statistics, Vdev, VdevLeafRead,
     VdevLeafWrite, VdevRead,
 };
-use crate::{
-    buffer::{Buf, BufWrite},
-    checksum::Checksum,
-};
+use crate::{buffer::Buf, checksum::Checksum};
 use async_trait::async_trait;
-use parking_lot::RwLock;
+use libc::{c_ulong, ioctl};
 use std::{
-    io::{self, Write},
-    ops::{Deref, DerefMut},
+    fs, io,
+    os::unix::{
+        fs::{FileExt, FileTypeExt},
+        io::AsRawFd,
+    },
     sync::atomic::Ordering,
 };
 
-/// `LeafVdev` that is backed by memory.
+/// `LeafVdev` that is backed by a file.
 #[derive(Debug)]
-pub struct Memory {
-    mem: RwLock<Box<[u8]>>,
+pub struct PMEMFile {
+    file: fs::File,
     id: String,
     size: Block<u64>,
     stats: AtomicStatistics,
 }
 
-impl Memory {
-    /// Creates a new `File`.
-    pub fn new(size: usize, id: String) -> io::Result<Self> {
-        Ok(Memory {
-            mem: RwLock::new(vec![0; size].into_boxed_slice()),
+impl PMEMFile {
+    /// Creates a new `PMEMFile`.
+    pub fn new(file: fs::File, id: String) -> io::Result<Self> {
+        let file_type = file.metadata()?.file_type();
+        let size = if file_type.is_file() {
+            Block::from_bytes(file.metadata()?.len())
+        } else if file_type.is_block_device() {
+            get_block_device_size(&file)?
+        } else {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Unsupported file type: {:?}", file_type),
+            ));
+        };
+        Ok(PMEMFile {
+            file,
             id,
-            size: Block::from_bytes(size as u64),
+            size,
             stats: Default::default(),
         })
     }
+}
 
-    fn slice<'s>(&'s self, size: usize, offset: usize) -> Result<impl Deref<Target = [u8]> + 's> {
-        parking_lot::RwLockReadGuard::try_map(self.mem.read(), |mem| mem.get(offset..offset + size))
-            .map_err(|_| VdevError::Read(self.id.clone()))
-    }
+#[cfg(target_os = "linux")]
+fn get_block_device_size(file: &fs::File) -> io::Result<Block<u64>> {
+    const BLKGETSIZE64: c_ulong = 2148012658;
+    let mut size: u64 = 0;
+    let result = unsafe { ioctl(file.as_raw_fd(), BLKGETSIZE64, &mut size) };
 
-    fn slice_blocks<'s>(
-        &'s self,
-        size: Block<u32>,
-        offset: Block<u64>,
-    ) -> Result<impl Deref<Target = [u8]> + 's> {
-        self.slice(size.to_bytes() as usize, offset.to_bytes() as usize)
-    }
-
-    fn slice_mut<'s>(
-        &'s self,
-        size: usize,
-        offset: usize,
-    ) -> Result<impl DerefMut<Target = [u8]> + 's> {
-        parking_lot::RwLockWriteGuard::try_map(self.mem.write(), |mem| {
-            mem.get_mut(offset..offset + size)
-        })
-        .map_err(|_| VdevError::Write(self.id.clone()))
-    }
-
-    fn slice_read(&self, size: Block<u32>, offset: Block<u64>) -> Result<Buf> {
-        self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
-
-        match self.slice_blocks(size, offset) {
-            Ok(slice) => {
-                let mut buf = BufWrite::with_capacity(size);
-                buf.write_all(&*slice)?;
-                Ok(buf.into_buf())
-            }
-            Err(e) => {
-                self.stats
-                    .failed_reads
-                    .fetch_add(size.as_u64(), Ordering::Relaxed);
-                Err(e)
-            }
-        }
+    if result == 0 {
+        Ok(Block::from_bytes(size))
+    } else {
+        Err(io::Error::last_os_error())
     }
 }
 
 #[async_trait]
-impl VdevRead for Memory {
+impl VdevRead for PMEMFile {
     async fn read<C: Checksum>(
         &self,
         size: Block<u32>,
         offset: Block<u64>,
         checksum: C,
     ) -> Result<Buf> {
-        let buf = self.slice_read(size, offset)?;
-        match checksum
-            .verify(&buf)
-            .map_err(|_| VdevError::Read(self.id.clone()))
-        {
+        self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
+        let buf = {
+            let mut buf = Buf::zeroed(size).into_full_mut();
+            if let Err(e) = self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
+                self.stats
+                    .failed_reads
+                    .fetch_add(size.as_u64(), Ordering::Relaxed);
+                bail!(e)
+            }
+            buf.into_full_buf()
+        };
+
+        match checksum.verify(&buf).map_err(VdevError::from) {
             Ok(()) => Ok(buf),
             Err(e) => {
                 self.stats
@@ -115,11 +105,22 @@ impl VdevRead for Memory {
     }
 
     async fn read_raw(&self, size: Block<u32>, offset: Block<u64>) -> Result<Vec<Buf>> {
-        Ok(vec![self.slice_read(size, offset)?])
+        println!("\n.. read_raw for superblock inside PMEMFile vdev.");
+        self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
+        let mut buf = Buf::zeroed(size).into_full_mut();
+        match self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
+            Ok(()) => Ok(vec![buf.into_full_buf()]),
+            Err(e) => {
+                self.stats
+                    .failed_reads
+                    .fetch_add(size.as_u64(), Ordering::Relaxed);
+                bail!(e)
+            }
+        }
     }
 }
 
-impl Vdev for Memory {
+impl Vdev for PMEMFile {
     fn actual_size(&self, size: Block<u32>) -> Block<u32> {
         size
     }
@@ -148,22 +149,17 @@ impl Vdev for Memory {
 }
 
 #[async_trait]
-impl VdevLeafRead for Memory {
+impl VdevLeafRead for PMEMFile {
     async fn read_raw<T: AsMut<[u8]> + Send>(&self, mut buf: T, offset: Block<u64>) -> Result<T> {
         let size = Block::from_bytes(buf.as_mut().len() as u32);
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
-
-        let buf_mut = buf.as_mut();
-        match self.slice(buf_mut.len(), offset.to_bytes() as usize) {
-            Ok(src) => {
-                buf_mut.copy_from_slice(&src);
-                Ok(buf)
-            }
+        match self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
+            Ok(()) => Ok(buf),
             Err(e) => {
                 self.stats
                     .failed_reads
                     .fetch_add(size.as_u64(), Ordering::Relaxed);
-                Err(e)
+                bail!(e)
             }
         }
     }
@@ -175,19 +171,33 @@ impl VdevLeafRead for Memory {
     }
 }
 
+static mut cntr : u32 = 0;
+
 #[async_trait]
-impl VdevLeafWrite for Memory {
+impl VdevLeafWrite for PMEMFile {
     async fn write_raw<W: AsRef<[u8]> + Send>(
         &self,
         data: W,
         offset: Block<u64>,
         is_repair: bool,
     ) -> Result<()> {
+
+        unsafe { 
+            cntr += 1; 
+
+            if cntr == 10 {
+                //panic!("...stop here..");
+                }
+                            }
+        println!("\n.... inside write_raw");
+        
+        
         let block_cnt = Block::from_bytes(data.as_ref().len() as u64).as_u64();
         self.stats.written.fetch_add(block_cnt, Ordering::Relaxed);
         match self
-            .slice_mut(data.as_ref().len(), offset.to_bytes() as usize)
-            .map(|mut dst| dst.copy_from_slice(data.as_ref()))
+            .file
+            .write_all_at(data.as_ref(), offset.to_bytes())
+            .map_err(|_| VdevError::Write(self.id.clone()))
         {
             Ok(()) => {
                 if is_repair {
@@ -204,6 +214,6 @@ impl VdevLeafWrite for Memory {
         }
     }
     fn flush(&self) -> Result<()> {
-        Ok(())
+        Ok(self.file.sync_data()?)
     }
 }

@@ -217,7 +217,7 @@ where
             })
             .collect::<Vec<_>>()
             .into_boxed_slice();
-
+        println!("\n.. allocation_date = {:?}", allocation_data);
         Dmu {
             // default_compression_state: default_compression.new_compression().expect("Can't create compression state"),
             default_compression,
@@ -502,7 +502,7 @@ where
             state.ingest(&compressed_data);
             state.finish()
         };
-
+println!("\n... about to call begin_write.");
         self.pool.begin_write(compressed_data, offset)?;
 
         let obj_ptr = ObjectPointer {
@@ -634,8 +634,11 @@ where
     pub fn allocate_raw_at(&self, disk_offset: DiskOffset, size: Block<u32>) -> Result<(), Error> {
         let disk_id = disk_offset.disk_id();
         let num_disks = self.pool.num_disks(disk_offset.storage_class(), disk_id);
+        println!("\n size {:?}", size);
         let size = size * num_disks as u32;
+        println!("\n size {:?}", size);
         let segment_id = SegmentId::get(disk_offset);
+        println!("\n segment_id {:?} disk_offset {}", segment_id, disk_offset.as_u64());
         let mut x =
             self.allocation_data[disk_offset.storage_class() as usize][disk_id as usize].lock();
         let mut allocator = self
@@ -643,12 +646,16 @@ where
             .get_allocation_bitmap(segment_id, self)
             .chain_err(|| ErrorKind::HandlerError)?;
         if allocator.allocate_at(size.as_u32(), SegmentId::get_block_offset(disk_offset)) {
+            //println!("\n...allocator {:?}", allocator);
             *x = Some((segment_id, allocator));
             self.handler
                 .update_allocation_bitmap(disk_offset, size, Action::Allocate, self)
                 .chain_err(|| ErrorKind::HandlerError)?;
+
+                //panic!("..stop..");
             Ok(())
         } else {
+            panic!("..stop..");
             bail!("Cannot allocate raw at {:?} / {:?}", disk_offset, size)
         }
     }
@@ -883,6 +890,7 @@ where
         F: FnMut() -> FO,
         FO: DerefMut<Target = Self::ObjectRef>,
     {
+        println!("\n.. calling handle_write_back.");
         let (object, mid) = loop {
             let mut or = acquire_or_lock();
             let mid = match *or {

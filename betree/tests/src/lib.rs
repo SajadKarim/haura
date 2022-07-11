@@ -22,7 +22,21 @@ fn test_db(tiers: u32, mb_per_tier: u32) -> Database<DatabaseConfiguration> {
         storage: StoragePoolConfiguration {
             tiers: (0..tiers)
                 .map(|_| TierConfiguration {
-                    top_level_vdevs: vec![Vdev::Leaf(LeafVdev::Memory { mem: tier_size })],
+/*memory*/          //top_level_vdevs: vec![Vdev::Leaf(LeafVdev::Memory { mem: tier_size })],
+/*file*/            //top_level_vdevs: vec![Vdev::Leaf(LeafVdev::File(std::path::PathBuf::from("/home/user/Documents/Code/testfile")))],
+/*mirror*/          top_level_vdevs: vec![Vdev::Mirror{
+                        mirror : vec![
+                            LeafVdev::PMEMFile(std::path::PathBuf::from("/dev1/datafile")),
+                            LeafVdev::PMEMFile(std::path::PathBuf::from("/dev2/datafile"))
+                        ]
+                    }],
+/*parity1*/         /*top_level_vdevs: vec![Vdev::Parity1{
+                        parity1 : vec![
+                            LeafVdev::File(std::path::PathBuf::from("/dev1/datafile")),
+                            LeafVdev::File(std::path::PathBuf::from("/dev2/datafile")),
+                            LeafVdev::File(std::path::PathBuf::from("/dev3/datafile"))
+                        ]
+                    }],*/                
                 })
                 .collect(),
             ..Default::default()
@@ -32,6 +46,7 @@ fn test_db(tiers: u32, mb_per_tier: u32) -> Database<DatabaseConfiguration> {
         ..Default::default()
     };
 
+    println!("\n.........................cfg={:?}", cfg);
     Database::build(cfg).expect("Database initialisation failed")
 }
 

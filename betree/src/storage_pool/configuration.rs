@@ -76,6 +76,7 @@ pub enum LeafVdev {
         /// Size of memory vdev in bytes.
         mem: usize,
     },
+    PMEMFile(PathBuf),
 }
 
 error_chain! {
@@ -159,6 +160,7 @@ impl TierConfiguration {
                         write!(s, "{} (direct: {:?}) ", path.display(), direct).unwrap()
                     }
                     LeafVdev::Memory { mem } => write!(s, "memory({}) ", mem).unwrap(),
+                    LeafVdev::PMEMFile(path) => write!(s, "{} ", path.display()).unwrap(),
                 }
             }
         }
@@ -217,6 +219,7 @@ impl LeafVdev {
                     LeafVdev::File(path) => (path, true),
                     LeafVdev::FileWithOpts { path, direct } => (path, direct.unwrap_or(true)),
                     LeafVdev::Memory { .. } => unreachable!(),
+                    LeafVdev::PMEMFile(path) => unreachable!(),
                 };
 
                 let mut file = OpenOptions::new();
@@ -237,10 +240,37 @@ impl LeafVdev {
                     path.to_string_lossy().into_owned(),
                 )?))
             }
-            LeafVdev::Memory { mem } => Ok(Leaf::Memory(vdev::Memory::new(
+            LeafVdev::Memory { mem } => { Ok(Leaf::Memory(vdev::Memory::new(
                 mem,
                 format!("memory-{}", mem),
-            )?)),
+            )?)) }
+            LeafVdev::PMEMFile(_) => {
+                let (path, direct) = match self {
+                    LeafVdev::File(path) => unreachable!(),
+                    LeafVdev::FileWithOpts { path, direct } => unreachable!(),
+                    LeafVdev::Memory { .. } => unreachable!(),
+                    LeafVdev::PMEMFile(path) => (path, true),
+                };
+
+                let mut file = OpenOptions::new();
+                file.read(true).write(true);
+                if direct {
+                    file.custom_flags(libc::O_DIRECT);
+                }
+                let file = file.open(&path)?;
+
+                if unsafe { libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_RANDOM) }
+                    != 0
+                {
+                    return Err(io::Error::last_os_error());
+                }
+
+                Ok(Leaf::PMEMFile(vdev::PMEMFile::new(
+                    file,
+                    path.to_string_lossy().into_owned(),
+                )?))
+            }
+
         }
     }
 }
@@ -300,6 +330,9 @@ impl LeafVdev {
             }
             LeafVdev::Memory { mem } => {
                 writeln!(f, "{:indent$}memory({})", "", mem, indent = indent)
+            }
+            LeafVdev::PMEMFile(path) => {
+                writeln!(f, "{:indent$}{}", "", path.display(), indent = indent)
             }
         }
     }

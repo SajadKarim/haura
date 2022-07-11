@@ -15,6 +15,7 @@ use std::{
 
 /// This `vdev` will generate parity data and stripe all data to its child
 /// vdevs.
+#[derive(Debug)]
 pub struct Parity1<V> {
     vdevs: Box<[V]>,
     id: String,
