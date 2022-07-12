@@ -1,4 +1,5 @@
 //! Storage Pool configuration.
+use bindgen_libpmem::libpmem;
 use crate::vdev::{self, Dev, Leaf};
 use itertools::Itertools;
 use libc;
@@ -252,7 +253,16 @@ impl LeafVdev {
                     LeafVdev::PMEMFile(path) => (path, true),
                 };
 
-                let mut file = OpenOptions::new();
+                let mut is_pmem : i32 = 0;
+                let mut mapped_len : u64 = 0;
+                let mut pfile = match path.to_str() {
+                    Some(x) => libpmem::pmem_file_open(&x, &mut mapped_len, &mut is_pmem),
+                    None => panic!(Error)
+                };
+
+                //let pmemfile: bindgen_libpmem::file_handle;
+
+                /*let mut file = OpenOptions::new();
                 file.read(true).write(true);
                 if direct {
                     file.custom_flags(libc::O_DIRECT);
@@ -264,9 +274,10 @@ impl LeafVdev {
                 {
                     return Err(io::Error::last_os_error());
                 }
-
+*/
                 Ok(Leaf::PMEMFile(vdev::PMEMFile::new(
-                    file,
+                    pfile,
+                    //file,
                     path.to_string_lossy().into_owned(),
                 )?))
             }

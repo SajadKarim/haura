@@ -1,3 +1,4 @@
+use bindgen_libpmem::libpmem;
 use super::{
     errors::*, AtomicStatistics, Block, Result, ScrubResult, Statistics, Vdev, VdevLeafRead,
     VdevLeafWrite, VdevRead,
@@ -17,7 +18,8 @@ use std::{
 /// `LeafVdev` that is backed by a file.
 #[derive(Debug)]
 pub struct PMEMFile {
-    file: fs::File,
+    pfile: bindgen_libpmem::file_handle,
+    //file: fs::File,
     id: String,
     size: Block<u64>,
     stats: AtomicStatistics,
@@ -25,8 +27,8 @@ pub struct PMEMFile {
 
 impl PMEMFile {
     /// Creates a new `PMEMFile`.
-    pub fn new(file: fs::File, id: String) -> io::Result<Self> {
-        let file_type = file.metadata()?.file_type();
+    pub fn new(pfile: bindgen_libpmem::file_handle, /*file: fs::File,*/ id: String) -> io::Result<Self> {
+        /*let file_type = file.metadata()?.file_type();
         let size = if file_type.is_file() {
             Block::from_bytes(file.metadata()?.len())
         } else if file_type.is_block_device() {
@@ -36,9 +38,11 @@ impl PMEMFile {
                 io::ErrorKind::Other,
                 format!("Unsupported file type: {:?}", file_type),
             ));
-        };
+        };*/
+        let size = Block::from_bytes(1024*1024);
         Ok(PMEMFile {
-            file,
+            pfile,
+            //file,
             id,
             size,
             stats: Default::default(),
@@ -70,12 +74,15 @@ impl VdevRead for PMEMFile {
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
         let buf = {
             let mut buf = Buf::zeroed(size).into_full_mut();
-            if let Err(e) = self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
+
+            libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.as_u64() as usize); 
+
+            /*if let Err(e) = self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
                 self.stats
                     .failed_reads
                     .fetch_add(size.as_u64(), Ordering::Relaxed);
                 bail!(e)
-            }
+            }*/
             buf.into_full_buf()
         };
 
@@ -108,7 +115,11 @@ impl VdevRead for PMEMFile {
         println!("\n.. read_raw for superblock inside PMEMFile vdev.");
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
         let mut buf = Buf::zeroed(size).into_full_mut();
-        match self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
+       
+        libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.as_u64() as usize);
+        Ok(vec![buf.into_full_buf()])
+
+        /*match self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
             Ok(()) => Ok(vec![buf.into_full_buf()]),
             Err(e) => {
                 self.stats
@@ -116,7 +127,7 @@ impl VdevRead for PMEMFile {
                     .fetch_add(size.as_u64(), Ordering::Relaxed);
                 bail!(e)
             }
-        }
+        }*/
     }
 }
 
@@ -153,7 +164,11 @@ impl VdevLeafRead for PMEMFile {
     async fn read_raw<T: AsMut<[u8]> + Send>(&self, mut buf: T, offset: Block<u64>) -> Result<T> {
         let size = Block::from_bytes(buf.as_mut().len() as u32);
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
-        match self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
+        
+        libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.as_u64() as usize);
+        Ok(buf)
+
+        /*match self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
             Ok(()) => Ok(buf),
             Err(e) => {
                 self.stats
@@ -161,7 +176,7 @@ impl VdevLeafRead for PMEMFile {
                     .fetch_add(size.as_u64(), Ordering::Relaxed);
                 bail!(e)
             }
-        }
+        }*/
     }
 
     fn checksum_error_occurred(&self, size: Block<u32>) {
@@ -194,10 +209,11 @@ impl VdevLeafWrite for PMEMFile {
         
         let block_cnt = Block::from_bytes(data.as_ref().len() as u64).as_u64();
         self.stats.written.fetch_add(block_cnt, Ordering::Relaxed);
-        match self
+       /* match self
             .file
             .write_all_at(data.as_ref(), offset.to_bytes())
-            .map_err(|_| VdevError::Write(self.id.clone()))
+            .map_err(|_| VdevError::Write(self.id.clone()))*/
+        match libpmem::pmem_file_write( &self.pfile, offset.to_bytes() as usize, data.as_ref(), data.as_ref().len()) 
         {
             Ok(()) => {
                 if is_repair {
@@ -209,11 +225,13 @@ impl VdevLeafWrite for PMEMFile {
                 self.stats
                     .failed_writes
                     .fetch_add(block_cnt, Ordering::Relaxed);
-                Err(e)
+               // Err(vdev::errors::VdevError(e))
+               Ok(())
             }
         }
     }
     fn flush(&self) -> Result<()> {
-        Ok(self.file.sync_data()?)
+        //Ok(self.file.sync_data()?)
+        Ok(())
     }
 }

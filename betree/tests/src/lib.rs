@@ -26,8 +26,10 @@ fn test_db(tiers: u32, mb_per_tier: u32) -> Database<DatabaseConfiguration> {
 /*file*/            //top_level_vdevs: vec![Vdev::Leaf(LeafVdev::File(std::path::PathBuf::from("/home/user/Documents/Code/testfile")))],
 /*mirror*/          top_level_vdevs: vec![Vdev::Mirror{
                         mirror : vec![
-                            LeafVdev::PMEMFile(std::path::PathBuf::from("/dev1/datafile")),
-                            LeafVdev::PMEMFile(std::path::PathBuf::from("/dev2/datafile"))
+                            LeafVdev::PMEMFile(std::path::PathBuf::from("/mnt/pmemfs0/datafile")),
+                            LeafVdev::PMEMFile(std::path::PathBuf::from("/mnt/pmemfs1/datafile"))
+                            //LeafVdev::File(std::path::PathBuf::from("/vol1/datafile1")),
+                            //LeafVdev::File(std::path::PathBuf::from("/vol1/datafile2")),
                         ]
                     }],
 /*parity1*/         /*top_level_vdevs: vec![Vdev::Parity1{

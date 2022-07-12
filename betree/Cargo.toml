@@ -48,6 +48,8 @@ figment = { version = "0.10", optional = true, features = ["env"] }
 indexmap = "1.6"
 bitvec = "0.22"
 
+bindgen-libpmem = { path = "./bindgen-libpmem" }
+
 serde_json = "1.0"
 
 [dev-dependencies]
