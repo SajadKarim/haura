@@ -56,25 +56,25 @@ impl<C: Checksum> StoragePoolLayer for StoragePoolUnit<C> {
                 .map(|tier_cfg| tier_cfg.build().map(Vec::into_boxed_slice))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            println!("\n... vec >> {:?}", vec);
+            //println!("\n... vec >> {:?}", vec);
 
             assert!(vec.len() <= NUM_STORAGE_CLASSES, "too many storage classes");
             vec.resize_with(NUM_STORAGE_CLASSES, || Box::new([]));
 
-            println!("\n... vec (after resize) >> {:?}", vec);
+            //println!("\n... vec (after resize) >> {:?}", vec);
 
             let boxed: Box<[StorageTier; NUM_STORAGE_CLASSES]> =
                 vec.into_boxed_slice().try_into().map_err(|_| ()).unwrap();
             *boxed
         };
-        println!("\n... NUM_STORAGE_CLASSES >> {}", NUM_STORAGE_CLASSES);
-        println!("\n... tiers >> {:?}", tiers);
+        //println!("\n... NUM_STORAGE_CLASSES >> {}", NUM_STORAGE_CLASSES);
+        //println!("\n... tiers >> {:?}", tiers);
         
         let devices_len = tiers.iter().map(|tier| tier.len()).sum::<usize>();
         let queue_depth = configuration.queue_depth_factor as usize * devices_len;
 
-        println!("\n... devices_len >> {}", devices_len);
-        println!("\n... queue_depth >> {}", queue_depth);
+        //println!("\n... devices_len >> {}", devices_len);
+        //println!("\n... queue_depth >> {}", queue_depth);
 
         Ok(StoragePoolUnit {
             inner: Arc::new(Inner {

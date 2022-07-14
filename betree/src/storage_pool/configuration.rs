@@ -63,6 +63,7 @@ pub enum Vdev {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged, deny_unknown_fields, rename_all = "lowercase")]
 pub enum LeafVdev {
+    PMEMFile(PathBuf),
     /// Backed by a file or disk.
     File(PathBuf),
     /// Customisable file vdev.
@@ -77,7 +78,7 @@ pub enum LeafVdev {
         /// Size of memory vdev in bytes.
         mem: usize,
     },
-    PMEMFile(PathBuf),
+    //PMEMFile(PathBuf),
 }
 
 error_chain! {
@@ -256,7 +257,7 @@ impl LeafVdev {
                 let mut is_pmem : i32 = 0;
                 let mut mapped_len : u64 = 0;
                 let mut pfile = match path.to_str() {
-                    Some(x) => libpmem::pmem_file_open(&x, &mut mapped_len, &mut is_pmem),
+                    Some(x) => libpmem::pmem_file_open(x, &mut mapped_len, &mut is_pmem),
                     None => panic!(Error)
                 };
 

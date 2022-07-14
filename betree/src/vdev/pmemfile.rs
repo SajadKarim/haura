@@ -74,16 +74,28 @@ impl VdevRead for PMEMFile {
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
         let buf = {
             let mut buf = Buf::zeroed(size).into_full_mut();
+//println!("\n-----------------------------------{} {}", size.as_u32(), offset.as_u64());
+ println!("\n-read--------------------------------size: {}, offset: {}", size.as_u32(), offset.as_u64());
+            //libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.as_u64() as usize); 
 
-            libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.as_u64() as usize); 
-
-            /*if let Err(e) = self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
+            //if let Err(e) = self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
+              if let Err(e) = libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.to_bytes() as usize) {
+//if let Err(e) = libpmem::pmem_file_read( &self.pfile, size.as_u32() as usize, buf.as_mut(), offset.as_u64() as usize) {
                 self.stats
                     .failed_reads
                     .fetch_add(size.as_u64(), Ordering::Relaxed);
                 bail!(e)
-            }*/
+            }
+
             buf.into_full_buf()
+        };
+
+                    //println!("\n----------------------------------- {:?}", buf.as_ref());
+//panic!("ooooo");
+
+        match checksum.verify(&buf).map_err(VdevError::from) {
+            Ok(()) => println!("\n checksum success.."),
+            Err(e) => println!("\n checksum failed..")
         };
 
         match checksum.verify(&buf).map_err(VdevError::from) {
@@ -112,14 +124,15 @@ impl VdevRead for PMEMFile {
     }
 
     async fn read_raw(&self, size: Block<u32>, offset: Block<u64>) -> Result<Vec<Buf>> {
-        println!("\n.. read_raw for superblock inside PMEMFile vdev.");
+        //println!("\n.. read_raw for superblock inside PMEMFile vdev.");
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
         let mut buf = Buf::zeroed(size).into_full_mut();
        
-        libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.as_u64() as usize);
-        Ok(vec![buf.into_full_buf()])
+        //libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.as_u64() as usize);
+        //Ok(vec![buf.into_full_buf()])
 
-        /*match self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
+        //match self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
+        match libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.to_bytes() as usize) {
             Ok(()) => Ok(vec![buf.into_full_buf()]),
             Err(e) => {
                 self.stats
@@ -127,7 +140,7 @@ impl VdevRead for PMEMFile {
                     .fetch_add(size.as_u64(), Ordering::Relaxed);
                 bail!(e)
             }
-        }*/
+        }
     }
 }
 
@@ -165,10 +178,11 @@ impl VdevLeafRead for PMEMFile {
         let size = Block::from_bytes(buf.as_mut().len() as u32);
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
         
-        libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.as_u64() as usize);
-        Ok(buf)
+        //libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.as_u64() as usize);
+        //Ok(buf)
 
-        /*match self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
+        //match self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
+        match libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.to_bytes() as usize) {
             Ok(()) => Ok(buf),
             Err(e) => {
                 self.stats
@@ -176,7 +190,7 @@ impl VdevLeafRead for PMEMFile {
                     .fetch_add(size.as_u64(), Ordering::Relaxed);
                 bail!(e)
             }
-        }*/
+        }
     }
 
     fn checksum_error_occurred(&self, size: Block<u32>) {
@@ -196,7 +210,7 @@ impl VdevLeafWrite for PMEMFile {
         offset: Block<u64>,
         is_repair: bool,
     ) -> Result<()> {
-
+// println!("\n-write-------------------------------size: {}, offset: {}", data.as_ref().len(), offset.as_u64());
         unsafe { 
             cntr += 1; 
 
@@ -204,7 +218,7 @@ impl VdevLeafWrite for PMEMFile {
                 //panic!("...stop here..");
                 }
                             }
-        println!("\n.... inside write_raw");
+ //       println!("\n.... inside write_raw");
         
         
         let block_cnt = Block::from_bytes(data.as_ref().len() as u64).as_u64();

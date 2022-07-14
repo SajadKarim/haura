@@ -67,6 +67,7 @@ impl VdevRead for File {
         offset: Block<u64>,
         checksum: C,
     ) -> Result<Buf> {
+        println!("\n-----------------------------------");
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
         let buf = {
             let mut buf = Buf::zeroed(size).into_full_mut();
@@ -78,6 +79,11 @@ impl VdevRead for File {
             }
             buf.into_full_buf()
         };
+println!("\n-----------------------------------");
+
+println!("\n----------------------------------- {:?}", buf.as_ref());
+println!("\n--{}",offset.to_bytes());
+panic!("ooooo");
 
         match checksum.verify(&buf).map_err(VdevError::from) {
             Ok(()) => Ok(buf),
@@ -105,7 +111,7 @@ impl VdevRead for File {
     }
 
     async fn read_raw(&self, size: Block<u32>, offset: Block<u64>) -> Result<Vec<Buf>> {
-        println!("\n.. read_raw for superblock inside File vdev.");
+        //println!("\n.. read_raw for superblock inside File vdev.");
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
         let mut buf = Buf::zeroed(size).into_full_mut();
         match self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
@@ -189,7 +195,7 @@ impl VdevLeafWrite for File {
                 //panic!("...stop here..");
                 }
                             }
-        println!("\n.... inside write_raw");
+        //println!("\n.... inside write_raw");
         
         
         let block_cnt = Block::from_bytes(data.as_ref().len() as u64).as_u64();
