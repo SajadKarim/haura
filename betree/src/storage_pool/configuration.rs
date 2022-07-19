@@ -1,5 +1,4 @@
 //! Storage Pool configuration.
-use bindgen_libpmem::libpmem;
 use crate::vdev::{self, Dev, Leaf};
 use itertools::Itertools;
 use libc;
@@ -63,7 +62,10 @@ pub enum Vdev {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged, deny_unknown_fields, rename_all = "lowercase")]
 pub enum LeafVdev {
-    PMEMFile(PathBuf),
+    PMEMFile {
+        path: PathBuf,
+        len: usize
+    },
     /// Backed by a file or disk.
     File(PathBuf),
     /// Customisable file vdev.
@@ -78,7 +80,7 @@ pub enum LeafVdev {
         /// Size of memory vdev in bytes.
         mem: usize,
     },
-    //PMEMFile(PathBuf),
+    
 }
 
 error_chain! {
@@ -162,7 +164,7 @@ impl TierConfiguration {
                         write!(s, "{} (direct: {:?}) ", path.display(), direct).unwrap()
                     }
                     LeafVdev::Memory { mem } => write!(s, "memory({}) ", mem).unwrap(),
-                    LeafVdev::PMEMFile(path) => write!(s, "{} ", path.display()).unwrap(),
+                    LeafVdev::PMEMFile{path, len} => write!(s, "{} {}", path.display(), len).unwrap(),
                 }
             }
         }
@@ -221,7 +223,7 @@ impl LeafVdev {
                     LeafVdev::File(path) => (path, true),
                     LeafVdev::FileWithOpts { path, direct } => (path, direct.unwrap_or(true)),
                     LeafVdev::Memory { .. } => unreachable!(),
-                    LeafVdev::PMEMFile(path) => unreachable!(),
+                    LeafVdev::PMEMFile { .. } => unreachable!(),
                 };
 
                 let mut file = OpenOptions::new();
@@ -246,28 +248,19 @@ impl LeafVdev {
                 mem,
                 format!("memory-{}", mem),
             )?)) }
-            LeafVdev::PMEMFile(_) => {
+            LeafVdev::PMEMFile { .. } => {
                 let (path, direct) = match self {
                     LeafVdev::File(path) => unreachable!(),
                     LeafVdev::FileWithOpts { path, direct } => unreachable!(),
                     LeafVdev::Memory { .. } => unreachable!(),
-                    LeafVdev::PMEMFile(path) => (path, true),
+                    LeafVdev::PMEMFile {path, len} => (path, len),
                 };
 
-                let mut is_pmem : i32 = 0;
-                let mut mapped_len : u64 = 0;
-                let mut pfile = match path.to_str() {
-                    Some(x) => libpmem::pmem_file_open(x, &mut mapped_len, &mut is_pmem),
-                    None => panic!(Error)
-                };
-
-                //let pmemfile: bindgen_libpmem::file_handle;
-
-                /*let mut file = OpenOptions::new();
+                let mut file = OpenOptions::new();
                 file.read(true).write(true);
-                if direct {
-                    file.custom_flags(libc::O_DIRECT);
-                }
+                //if direct {
+                //    file.custom_flags(libc::O_DIRECT);
+                //}
                 let file = file.open(&path)?;
 
                 if unsafe { libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_RANDOM) }
@@ -275,10 +268,9 @@ impl LeafVdev {
                 {
                     return Err(io::Error::last_os_error());
                 }
-*/
+
                 Ok(Leaf::PMEMFile(vdev::PMEMFile::new(
-                    pfile,
-                    //file,
+                    file,
                     path.to_string_lossy().into_owned(),
                 )?))
             }
@@ -343,7 +335,7 @@ impl LeafVdev {
             LeafVdev::Memory { mem } => {
                 writeln!(f, "{:indent$}memory({})", "", mem, indent = indent)
             }
-            LeafVdev::PMEMFile(path) => {
+            LeafVdev::PMEMFile {path, len} => {
                 writeln!(f, "{:indent$}{}", "", path.display(), indent = indent)
             }
         }
