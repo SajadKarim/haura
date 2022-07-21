@@ -1,5 +1,4 @@
 //! Storage Pool configuration.
-use bindgen_libpmem::libpmem;
 use crate::vdev::{self, Dev, Leaf};
 use itertools::Itertools;
 use libc;
