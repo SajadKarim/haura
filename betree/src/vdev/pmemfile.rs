@@ -1,4 +1,4 @@
-use bindgen_libpmem::libpmem;
+use libpmem_sys::libpmem;
 use super::{
     errors::*, AtomicStatistics, Block, Result, ScrubResult, Statistics, Vdev, VdevLeafRead,
     VdevLeafWrite, VdevRead,
@@ -18,7 +18,7 @@ use std::{
 /// `LeafVdev` that is backed by a file.
 #[derive(Debug)]
 pub struct PMEMFile {
-    pfile: bindgen_libpmem::file_handle,
+    pfile: libpmem_sys::ptr_to_pmem,
     id: String,
     size: Block<u64>,
     stats: AtomicStatistics,
@@ -26,7 +26,7 @@ pub struct PMEMFile {
 
 impl PMEMFile {
     /// Creates a new `PMEMFile`.
-    pub fn new(pfile: bindgen_libpmem::file_handle, id: String, len: u64) -> io::Result<Self> {
+    pub fn new(pfile: libpmem_sys::ptr_to_pmem, id: String, len: u64) -> io::Result<Self> {
         let size = Block::from_bytes(len);
         Ok(PMEMFile {
             pfile,
