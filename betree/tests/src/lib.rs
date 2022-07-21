@@ -30,6 +30,9 @@ fn test_db(tiers: u32, mb_per_tier: u32) -> Database<DatabaseConfiguration> {
                             LeafVdev::PMEMFile(std::path::PathBuf::from("/mnt/pmemfs1/datafile"))
                             //LeafVdev::File(std::path::PathBuf::from("/vol1/datafile1")),
                             //LeafVdev::File(std::path::PathBuf::from("/vol1/datafile2")),
+                            //LeafVdev::File(std::path::PathBuf::from("/run/user/1003/datafile1")),
+                            //LeafVdev::File(std::path::PathBuf::from("/run/user/1003/datafile2")),
+
                         ]
                     }],
 /*parity1*/         /*top_level_vdevs: vec![Vdev::Parity1{

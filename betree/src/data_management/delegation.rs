@@ -83,7 +83,6 @@ where
         F: FnMut() -> G,
         G: DerefMut<Target = Self::ObjectRef>,
     {
-        println!("\n.. calling write_back.");
         (**self).write_back(acquire_or_lock)
     }
 

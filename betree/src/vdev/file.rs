@@ -67,7 +67,6 @@ impl VdevRead for File {
         offset: Block<u64>,
         checksum: C,
     ) -> Result<Buf> {
-        println!("\n-----------------------------------");
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
         let buf = {
             let mut buf = Buf::zeroed(size).into_full_mut();
@@ -79,11 +78,6 @@ impl VdevRead for File {
             }
             buf.into_full_buf()
         };
-println!("\n-----------------------------------");
-
-println!("\n----------------------------------- {:?}", buf.as_ref());
-println!("\n--{}",offset.to_bytes());
-panic!("ooooo");
 
         match checksum.verify(&buf).map_err(VdevError::from) {
             Ok(()) => Ok(buf),
@@ -111,7 +105,6 @@ panic!("ooooo");
     }
 
     async fn read_raw(&self, size: Block<u32>, offset: Block<u64>) -> Result<Vec<Buf>> {
-        //println!("\n.. read_raw for superblock inside File vdev.");
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
         let mut buf = Buf::zeroed(size).into_full_mut();
         match self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
@@ -177,8 +170,6 @@ impl VdevLeafRead for File {
     }
 }
 
-static mut cntr : u32 = 0;
-
 #[async_trait]
 impl VdevLeafWrite for File {
     async fn write_raw<W: AsRef<[u8]> + Send>(
@@ -186,18 +177,7 @@ impl VdevLeafWrite for File {
         data: W,
         offset: Block<u64>,
         is_repair: bool,
-    ) -> Result<()> {
-
-        unsafe { 
-            cntr += 1; 
-
-            if cntr == 10 {
-                //panic!("...stop here..");
-                }
-                            }
-        //println!("\n.... inside write_raw");
-        
-        
+    ) -> Result<()> {        
         let block_cnt = Block::from_bytes(data.as_ref().len() as u64).as_u64();
         self.stats.written.fetch_add(block_cnt, Ordering::Relaxed);
         match self

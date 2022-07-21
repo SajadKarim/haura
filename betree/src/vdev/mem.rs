@@ -85,9 +85,7 @@ impl VdevRead for Memory {
         offset: Block<u64>,
         checksum: C,
     ) -> Result<Buf> {
-        println!("\n-read-------------------------------size: {}, offset: {}", size.as_u32(), offset.as_u64());
         let buf = self.slice_read(size, offset)?;
-        panic!("....");
         match checksum
             .verify(&buf)
             .map_err(|_| VdevError::Read(self.id.clone()))
@@ -185,7 +183,6 @@ impl VdevLeafWrite for Memory {
         offset: Block<u64>,
         is_repair: bool,
     ) -> Result<()> {
-         println!("\n-write-------------------------------size: {}, offset: {}", data.as_ref().len(), offset.as_u64());
         let block_cnt = Block::from_bytes(data.as_ref().len() as u64).as_u64();
         self.stats.written.fetch_add(block_cnt, Ordering::Relaxed);
         match self

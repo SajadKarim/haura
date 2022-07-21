@@ -165,7 +165,6 @@ impl<V: Vdev + VdevRead + VdevLeafRead + VdevLeafWrite + 'static> VdevRead for M
 #[async_trait]
 impl<V: VdevLeafWrite + 'static> VdevWrite for Mirror<V> {
     async fn write(&self, data: Buf, offset: Block<u64>) -> Result<()> {
-        println!("\n.... write from mirror.");
         let size = Block::from_bytes(data.len() as u32);
         self.stats
             .written
@@ -175,7 +174,6 @@ impl<V: VdevLeafWrite + 'static> VdevWrite for Mirror<V> {
             .iter()
             .map(|disk| disk.write_raw(data.clone(), offset, false).into_future())
             .collect();
-        println!("\n >>>> ..... writing to disk. {}", futures.len());
         let results: Vec<_> = futures.collect().await;
         let total_writes = results.len();
         let mut failed_writes = 0;
@@ -200,7 +198,6 @@ impl<V: VdevLeafWrite + 'static> VdevWrite for Mirror<V> {
     }
 
     async fn write_raw(&self, data: Buf, offset: Block<u64>) -> Result<()> {
-        println!("\n.... write_raw from mirror.");
         let futures: FuturesUnordered<_> = self
             .vdevs
             .iter()

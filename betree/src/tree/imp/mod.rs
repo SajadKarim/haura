@@ -350,7 +350,6 @@ where
     I: Borrow<Inner<X::ObjectRef, X::Info, M>>,
 {
     fn get<K: Borrow<[u8]>>(&self, key: K) -> Result<Option<SlicedCowBytes>, Error> {
-        println!("..inside triee get.");
         let key = key.borrow();
         let mut msgs = Vec::new();
         let mut node = self.get_root_node()?;
@@ -426,8 +425,6 @@ where
     }
 }
 
-static mut i: u32 = 0;
-
 impl<X, R, M, I> TreeLayer<M> for Tree<X, M, I>
 where
     X: Dml<Object = Node<R>, ObjectRef = R>,
@@ -451,14 +448,6 @@ where
 
     fn sync(&self) -> Result<Self::Pointer, Error> {
         // TODO
-        println!("\n.. calling sync...");
-        unsafe { 
-            i += 1; 
-
-            if i == 10 {
-                //panic!("...stop here..");
-            }
-        }
         let obj_ptr = self
             .dml
             .write_back(|| self.inner.borrow().root_node.write())?;

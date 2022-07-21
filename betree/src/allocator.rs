@@ -71,7 +71,6 @@ impl SegmentAllocator {
 
         let start_idx = offset as usize;
         let end_idx = (offset + size) as usize;
-        println!("\n.. start and end indices...{} {}", start_idx, end_idx);
         if self.data[start_idx..end_idx].any() {
             return false;
         }

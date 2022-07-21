@@ -48,7 +48,6 @@ impl<C: Checksum> StoragePoolLayer for StoragePoolUnit<C> {
     type Metrics = StoragePoolMetrics;
 
     fn new(configuration: &Self::Configuration) -> StoragePoolResult<Self> {
-        println!("\n... insidie StoragePoolUnit >> {:?}", configuration);
         let tiers: [StorageTier; NUM_STORAGE_CLASSES] = {
             let mut vec: Vec<StorageTier> = configuration
                 .tiers
@@ -56,26 +55,15 @@ impl<C: Checksum> StoragePoolLayer for StoragePoolUnit<C> {
                 .map(|tier_cfg| tier_cfg.build().map(Vec::into_boxed_slice))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            //println!("\n... vec >> {:?}", vec);
-
             assert!(vec.len() <= NUM_STORAGE_CLASSES, "too many storage classes");
             vec.resize_with(NUM_STORAGE_CLASSES, || Box::new([]));
-
-            //println!("\n... vec (after resize) >> {:?}", vec);
-
             let boxed: Box<[StorageTier; NUM_STORAGE_CLASSES]> =
                 vec.into_boxed_slice().try_into().map_err(|_| ()).unwrap();
             *boxed
         };
-        //println!("\n... NUM_STORAGE_CLASSES >> {}", NUM_STORAGE_CLASSES);
-        //println!("\n... tiers >> {:?}", tiers);
         
         let devices_len = tiers.iter().map(|tier| tier.len()).sum::<usize>();
         let queue_depth = configuration.queue_depth_factor as usize * devices_len;
-
-        //println!("\n... devices_len >> {}", devices_len);
-        //println!("\n... queue_depth >> {}", queue_depth);
-
         Ok(StoragePoolUnit {
             inner: Arc::new(Inner {
                 tiers,
@@ -84,8 +72,6 @@ impl<C: Checksum> StoragePoolLayer for StoragePoolUnit<C> {
                 pool: {
                     let mut pool = ThreadPool::builder();
                     pool.name_prefix("storage_pool");
-                    if let Some(val) = configuration.thread_pool_size { println!("\n... thread_pool_size >> {}", val); }
-                    println!("\n... thread_pool_pinned >> {}", configuration.thread_pool_pinned);
                     if let Some(size) = configuration.thread_pool_size {
                         pool.pool_size(size as usize);
                     }
@@ -166,11 +152,9 @@ impl<C: Checksum> StoragePoolLayer for StoragePoolUnit<C> {
     }
 
     fn read_raw(&self, size: Block<u32>, offset: Block<u64>) -> Result<Vec<Buf>, VdevError> {
-        println!("\n.. read_raw for superblock.");
         let mut vec = Vec::new();
         for class in self.inner.tiers.iter() {
             for vdev in class.iter() {
-                println!("\n.. vdev = {:?}", vdev);
                 let v = block_on(vdev.read_raw(size, offset).into_future())?;
                 vec.extend(v);
             }
@@ -200,12 +184,10 @@ impl<C: Checksum> StoragePoolLayer for StoragePoolUnit<C> {
     }
 
     fn disk_count(&self, storage_class: u8) -> u16 {
-        //println!("\n.. disk_count() = {}", self.inner.tiers[storage_class as usize].len() as u16);
         self.inner.tiers[storage_class as usize].len() as u16
     }
 
     fn storage_class_count(&self) -> u8 {
-        //println!("\n.. storage_class_count() = {}", NUM_STORAGE_CLASSES);
         NUM_STORAGE_CLASSES as u8
     }
 

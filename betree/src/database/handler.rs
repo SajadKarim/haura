@@ -144,49 +144,38 @@ impl data_management::Handler<ObjectRef> for Handler {
             Info = DatasetId,
         >,
     {
-        println!("SEGMENT_SIZE:{} SEGMENT_SIZE_BYTES:{}", crate::allocator::SEGMENT_SIZE, SEGMENT_SIZE_BYTES);
         let now = std::time::Instant::now();
-        let mut bitmap = [0u8; SEGMENT_SIZE_BYTES]; // array of SEGMENT_SIZE_BYTES with 8-bits width.
+        let mut bitmap = [0u8; SEGMENT_SIZE_BYTES];
 
-        println!("\n...SEGMENT_SIZE_BYTES {0}", SEGMENT_SIZE_BYTES);
         let key = segment_id_to_key(id);
-        println!("\n...segmed_id_to_key {:?} {:?}", id, key);
         let segment = self.current_root_tree(dmu).get(&key[..])?;
-        println!(
+        log::info!(
             "fetched {:?} bitmap elements",
             segment.as_ref().map(|s| s.len())
         );
 
-        //println!("\n...bitmap {:?}", bitmap);
         if let Some(segment) = segment {
-            println!("\n******************");
             assert!(segment.len() <= SEGMENT_SIZE_BYTES);
             bitmap[..segment.len()].copy_from_slice(&segment[..]);
         }
 
         if let Some(tree) = self.last_root_tree(dmu) {
-            println!("\n******************.");
             if let Some(old_segment) = tree.get(&key[..])? {
-                println!("\n******************..");
                 for (w, old) in bitmap.iter_mut().zip(old_segment.iter()) {
                     *w |= *old;
                 }
             }
         }
 
-        //println!("\n...bitmap {:?}", bitmap);
         let mut allocator = SegmentAllocator::new(bitmap);
 
         if let Some((offset, size)) = self.old_root_allocation.read() {
-            println!("\n******************....");
             if SegmentId::get(offset) == id {
                 allocator.allocate_at(size.as_u32(), SegmentId::get_block_offset(offset));
             }
         }
-        //println!("\n...allocator {:?}", allocator);
 
         log::info!("requested allocation bitmap, took {:?}", now.elapsed());
-        //panic!("..stop..");
 
         Ok(allocator)
     }
