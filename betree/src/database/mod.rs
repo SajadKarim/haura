@@ -218,6 +218,7 @@ impl DatabaseBuilder for DatabaseConfiguration {
     }
 
     fn new_dmu(&self, spu: Self::Spu, handler: handler::Handler) -> Self::Dmu {
+
         let mut strategy: [[Option<u8>; NUM_STORAGE_CLASSES]; NUM_STORAGE_CLASSES] =
             [[None; NUM_STORAGE_CLASSES]; NUM_STORAGE_CLASSES];
 
@@ -357,7 +358,21 @@ impl Database<DatabaseConfiguration> {
 impl<Config: DatabaseBuilder> Database<Config> {
     /// Opens or creates a database given by the storage pool configuration and
     /// sets the given cache size.
+    pub fn buildex(builder: Config, n_MAX_INTERNAL_NODE_SIZE :usize, n_MIN_FLUSH_SIZE :usize, n_MIN_LEAF_NODE_SIZE :usize, n_MAX_MESSAGE_SIZE :usize, n_CHUNK_SIZE: u32) -> Result<Self> {
+unsafe {
+super::g_MAX_INTERNAL_NODE_SIZE=n_MAX_INTERNAL_NODE_SIZE;
+super::g_MIN_FLUSH_SIZE=n_MIN_FLUSH_SIZE;
+super::g_MIN_LEAF_NODE_SIZE=n_MIN_LEAF_NODE_SIZE;
+super::g_MAX_LEAF_NODE_SIZE=n_MAX_INTERNAL_NODE_SIZE;
+super::g_MAX_MESSAGE_SIZE=n_MAX_MESSAGE_SIZE;
+super::g_CHUNK_SIZE=n_CHUNK_SIZE;
+}
+Self::build(builder)
+        }
+    
+
     pub fn build(builder: Config) -> Result<Self> {
+
         builder.pre_build();
         let spl = builder.new_spu()?;
         let handler = builder.new_handler(&spl);

@@ -53,7 +53,11 @@ impl Memory {
         offset: usize,
     ) -> Result<impl DerefMut<Target = [u8]> + 's> {
         parking_lot::RwLockWriteGuard::try_map(self.mem.write(), |mem| {
-            mem.get_mut(offset..offset + size)
+
+            //let now = std::time::Instant::now();
+            let res = mem.get_mut(offset..offset + size);
+            //println!("oooooooooooooooooooooooooooooo {:?}", now.elapsed());
+            res
         })
         .map_err(|_| VdevError::Write(self.id.clone()))
     }
@@ -187,7 +191,12 @@ impl VdevLeafWrite for Memory {
         self.stats.written.fetch_add(block_cnt, Ordering::Relaxed);
         match self
             .slice_mut(data.as_ref().len(), offset.to_bytes() as usize)
-            .map(|mut dst| dst.copy_from_slice(data.as_ref()))
+            .map(|mut dst|{ 
+                 //let now = std::time::Instant::now();
+                 let ret = dst.copy_from_slice(data.as_ref());
+                  //let ret = unsafe { std::ptr::copy_nonoverlapping(data.as_ref().as_ptr(), dst.as_mut_ptr(), data.as_ref().len()) };
+                //println!("ooooooooooooooooooooooo {:?}", now.elapsed());
+                  ret})
         {
             Ok(()) => {
                 if is_repair {

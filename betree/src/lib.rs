@@ -54,6 +54,15 @@ pub mod env_logger;
 #[cfg(test)]
 mod arbitrary;
 
+
+//t mut g_block_size: std::sync::Arc<std::sync::Mutex<usize>> = std::sync::Arc::new(std::sync::Mutex::new(0));
+static mut g_MAX_INTERNAL_NODE_SIZE: usize = 0;
+static mut g_MIN_FLUSH_SIZE: usize = 0;
+static mut g_MIN_LEAF_NODE_SIZE: usize = 0;
+static mut g_MAX_LEAF_NODE_SIZE: usize = 0;
+static mut g_MAX_MESSAGE_SIZE: usize = 0;
+static mut g_CHUNK_SIZE: u32 = 0;
+
 pub use self::{
     database::{Database, DatabaseConfiguration, Dataset, Error, Snapshot},
     storage_pool::{AtomicStoragePreference, StoragePoolConfiguration, StoragePreference},

@@ -60,7 +60,7 @@ pub mod libpmem {
         };
 
         unsafe {
-            let ptr = pmem_memcpy(data.as_ptr() as *mut c_void, begin_pos.0.lock().unwrap().add(offset), len as u64, 0);
+            let ptr = pmem_memcpy(data.as_ptr() as *mut c_void, begin_pos.0.lock().unwrap().add(offset), len as u64, PMEM_F_MEM_NOFLUSH);
 
             match NonNull::new(ptr) {
                 Some(value) => Ok(()),

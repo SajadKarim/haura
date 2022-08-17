@@ -255,7 +255,7 @@ impl<Config: DatabaseBuilder> Dataset<Config, DefaultMessageAction> {
         storage_preference: StoragePreference,
     ) -> Result<()> {
         ensure!(
-            data.len() <= tree::MAX_MESSAGE_SIZE,
+            data.len() <= unsafe{crate::g_MAX_MESSAGE_SIZE},
             ErrorKind::MessageTooLarge
         );
         self.insert_msg_with_pref(
@@ -283,7 +283,7 @@ impl<Config: DatabaseBuilder> Dataset<Config, DefaultMessageAction> {
         storage_preference: StoragePreference,
     ) -> Result<()> {
         ensure!(
-            offset as usize + data.len() <= tree::MAX_MESSAGE_SIZE,
+            offset as usize + data.len() <= unsafe{ crate::g_MAX_MESSAGE_SIZE},
             ErrorKind::MessageTooLarge
         );
         self.insert_msg_with_pref(

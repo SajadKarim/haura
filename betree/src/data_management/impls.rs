@@ -900,7 +900,7 @@ where
                         match self.prepare_write_back(mid, &mut mids) {
                             Ok(None) => {}
                             Ok(Some(object)) => {
-                                self.handle_write_back(object, mid, false)?;
+                                self.handle_write_back(object, mid, true)?;
                             }
                             Err(()) => continue,
                         };
@@ -909,7 +909,7 @@ where
                 }
             }
         };
-        self.handle_write_back(object, mid, false)
+        self.handle_write_back(object, mid, true)
     }
 
     type Prefetch = Pin<

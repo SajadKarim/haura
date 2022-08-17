@@ -111,7 +111,7 @@ where
                 child = next_node;
             }
 
-            if child_buffer.size() > super::MAX_INTERNAL_NODE_SIZE {
+            if child_buffer.size() > unsafe{crate::g_MAX_INTERNAL_NODE_SIZE} {
                 warn!("Node is still too large");
                 if child.is_too_large() {
                     warn!("... but child, too");

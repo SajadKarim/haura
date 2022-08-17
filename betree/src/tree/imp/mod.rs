@@ -44,12 +44,12 @@ impl KeyInfo {
     }
 }
 
-pub(super) const MAX_INTERNAL_NODE_SIZE: usize = 4 * 1024 * 1024;
-const MIN_FLUSH_SIZE: usize = 256 * 1024;
+//pub(super) const MAX_INTERNAL_NODE_SIZE: usize = 4*1024;//4*4*1024;//4 * 1024 * 1024;
+//const MIN_FLUSH_SIZE: usize = 256;//1*1024;//256 * 1024;
 const MIN_FANOUT: usize = 4;
-const MIN_LEAF_NODE_SIZE: usize = 1 * 1024 * 1024;
-const MAX_LEAF_NODE_SIZE: usize = MAX_INTERNAL_NODE_SIZE;
-pub(crate) const MAX_MESSAGE_SIZE: usize = 512 * 1024;
+//const MIN_LEAF_NODE_SIZE: usize = 1*1024;//1*4*1024;//1 * 1024 * 1024;
+//const MAX_LEAF_NODE_SIZE: usize = MAX_INTERNAL_NODE_SIZE;
+//pub(crate) const MAX_MESSAGE_SIZE: usize = 512;//2*1024;//512 * 1024;
 
 /// The actual tree type.
 pub struct Tree<X: DmlBase, M, I: Borrow<Inner<X::ObjectRef, X::Info, M>>> {

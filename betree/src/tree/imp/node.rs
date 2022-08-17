@@ -4,8 +4,8 @@ use super::{
     internal::{InternalNode, TakeChildBuffer},
     leaf::LeafNode,
     packed::PackedMap,
-    FillUpResult, KeyInfo, MAX_INTERNAL_NODE_SIZE, MAX_LEAF_NODE_SIZE, MIN_FANOUT, MIN_FLUSH_SIZE,
-    MIN_LEAF_NODE_SIZE,
+    FillUpResult, KeyInfo/*, MAX_INTERNAL_NODE_SIZE, MAX_LEAF_NODE_SIZE*/, MIN_FANOUT/*, MIN_FLUSH_SIZE,
+    MIN_LEAF_NODE_SIZE,*/
 };
 use crate::{
     cow_bytes::{CowBytes, SlicedCowBytes},
@@ -137,16 +137,16 @@ impl<N: StaticSize + HasStoragePreference> Node<N> {
         match self.0 {
             Leaf(_) | PackedLeaf(_) => None,
             Internal(ref mut internal) => {
-                internal.try_flush(MIN_FLUSH_SIZE, MAX_INTERNAL_NODE_SIZE, MIN_FANOUT)
+                internal.try_flush(unsafe{crate::g_MIN_FLUSH_SIZE}, unsafe{crate::g_MAX_INTERNAL_NODE_SIZE}, MIN_FANOUT)
             }
         }
     }
 
     pub(super) fn is_too_large(&self) -> bool {
         match self.0 {
-            PackedLeaf(ref map) => map.size() > MAX_LEAF_NODE_SIZE,
-            Leaf(ref leaf) => leaf.size() > MAX_LEAF_NODE_SIZE,
-            Internal(ref internal) => internal.size() > MAX_INTERNAL_NODE_SIZE,
+            PackedLeaf(ref map) => map.size() > unsafe{crate::g_MAX_LEAF_NODE_SIZE},
+            Leaf(ref leaf) => leaf.size() > unsafe{crate::g_MAX_LEAF_NODE_SIZE},
+            Internal(ref internal) => internal.size() > unsafe{crate::g_MAX_INTERNAL_NODE_SIZE},
         }
     }
 }
@@ -193,16 +193,16 @@ impl<N: HasStoragePreference + StaticSize> Node<N> {
 
     pub(super) fn is_too_small_leaf(&self) -> bool {
         match self.0 {
-            PackedLeaf(ref map) => map.size() < MIN_LEAF_NODE_SIZE,
-            Leaf(ref leaf) => leaf.size() < MIN_LEAF_NODE_SIZE,
+            PackedLeaf(ref map) => map.size() < unsafe{crate::g_MIN_LEAF_NODE_SIZE},
+            Leaf(ref leaf) => leaf.size() < unsafe{crate::g_MIN_LEAF_NODE_SIZE},
             Internal(_) => false,
         }
     }
 
     pub(super) fn is_too_large_leaf(&self) -> bool {
         match self.0 {
-            PackedLeaf(ref map) => map.size() > MAX_LEAF_NODE_SIZE,
-            Leaf(ref leaf) => leaf.size() > MAX_LEAF_NODE_SIZE,
+            PackedLeaf(ref map) => map.size() > unsafe{crate::g_MAX_LEAF_NODE_SIZE},
+            Leaf(ref leaf) => leaf.size() > unsafe{crate::g_MAX_LEAF_NODE_SIZE},
             Internal(_) => false,
         }
     }
@@ -245,7 +245,7 @@ impl<N: StaticSize + HasStoragePreference> Node<N> {
             PackedLeaf(_) => unreachable!(),
             Leaf(ref mut leaf) => {
                 let (right_sibling, pivot_key, _) =
-                    leaf.split(MIN_LEAF_NODE_SIZE, MAX_LEAF_NODE_SIZE);
+                    leaf.split(unsafe{crate::g_MIN_LEAF_NODE_SIZE}, unsafe{crate::g_MAX_LEAF_NODE_SIZE});
                 (Node(Leaf(right_sibling)), pivot_key, 0)
             }
             Internal(ref mut internal) => {
@@ -394,7 +394,7 @@ impl<N: StaticSize + HasStoragePreference> Node<N> {
             PackedLeaf(_) => unreachable!(),
             Leaf(ref mut leaf) => {
                 let (node, pivot_key, size_delta) =
-                    leaf.split(MIN_LEAF_NODE_SIZE, MAX_LEAF_NODE_SIZE);
+                    leaf.split(unsafe{crate::g_MIN_LEAF_NODE_SIZE}, unsafe{crate::g_MAX_LEAF_NODE_SIZE});
                 (Node(Leaf(node)), pivot_key, size_delta)
             }
             Internal(ref mut internal) => {
@@ -428,7 +428,7 @@ impl<N: StaticSize + HasStoragePreference> Node<N> {
         right_sibling.ensure_unpacked();
         match (&mut self.0, &mut right_sibling.0) {
             (&mut Leaf(ref mut left), &mut Leaf(ref mut right)) => {
-                left.rebalance(right, MIN_LEAF_NODE_SIZE, MAX_LEAF_NODE_SIZE)
+                left.rebalance(right, unsafe{crate::g_MIN_LEAF_NODE_SIZE}, unsafe{crate::g_MAX_LEAF_NODE_SIZE})
             }
             _ => unreachable!(),
         }

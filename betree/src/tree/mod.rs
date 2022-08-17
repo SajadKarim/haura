@@ -16,4 +16,4 @@ pub use self::{
 };
 
 pub(in crate::tree) use self::imp::KeyInfo;
-pub(crate) use self::{imp::MAX_MESSAGE_SIZE, layer::ErasedTreeSync};
+pub(crate) use self::{/*imp::MAX_MESSAGE_SIZE,*/ layer::ErasedTreeSync};
