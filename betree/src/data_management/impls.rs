@@ -555,7 +555,7 @@ where
     fn allocate(&self, storage_preference: u8, size: Block<u32>) -> Result<DiskOffset, Error> {
         assert!(storage_preference < NUM_STORAGE_CLASSES as u8);
         if size >= Block(2048) {
-            warn!("Very large allocation requested: {:?}", size);
+            //warn!("Very large allocation requested: {:?}", size);
         }
 
         let strategy = self.alloc_strategy[storage_preference as usize];

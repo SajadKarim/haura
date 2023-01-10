@@ -3,12 +3,11 @@ use super::{
     errors::*, AtomicStatistics, Block, Result, ScrubResult, Statistics, Vdev, VdevLeafRead,
     VdevLeafWrite, VdevRead,
 };
-use crate::{buffer::Buf, buffer::BufWrite, checksum::Checksum};
+use crate::{buffer::Buf, checksum::Checksum};
 use async_trait::async_trait;
 use libc::{c_ulong, ioctl};
 use std::{
-    fs,
-    io::{self, Write},
+    fs, io,
     os::unix::{
         fs::{FileExt, FileTypeExt},
         io::AsRawFd,
@@ -27,8 +26,8 @@ pub struct PMEMFile {
 
 impl PMEMFile {
     /// Creates a new `PMEMFile`.
-    pub fn new(pfile: libpmem_sys::ptr_to_pmem, id: String, len: u64) -> io::Result<Self> {
-        let size = Block::from_bytes(len);
+    pub fn new(pfile: libpmem_sys::ptr_to_pmem, id: String, len: usize) -> io::Result<Self> {
+        let size = Block::from_bytes(len as u64);
         Ok(PMEMFile {
             pfile,
             id,
@@ -60,63 +59,18 @@ impl VdevRead for PMEMFile {
         checksum: C,
     ) -> Result<Buf> {
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
-
         let buf = {
             let mut buf = Buf::zeroed(size).into_full_mut();
-            //let now = std::time::Instant::now();
-            let mut time : u128 = 0;
-            if let Err(e) = libpmem::pmem_file_read_ex( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.to_bytes() as u64, &mut time) {
+
+            if let Err(e) = libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.to_bytes() as usize) {
                 self.stats
                     .failed_reads
                     .fetch_add(size.as_u64(), Ordering::Relaxed);
                 bail!(e)
-            } else {
-                self.stats.read_duration.lock().unwrap().push((size.to_bytes(), time));//now.elapsed().as_nanos()));
-            }
-            buf.into_full_buf()
-        };
-
-        //let now = std::time::Instant::now();
-        /*let buf = {
-            let mut buf = Buf::zeroed(size).into_full_mut();
-            //let mut _buf = vec![0; size.to_bytes() as usize];
-            let now = std::time::Instant::now();
-
-            /*let mut _buf = BufWrite::with_capacity(size);
-            unsafe {
-                let _data  = std::slice::from_raw_parts(self.pfile.0.add(offset.to_bytes() as usize) as *const u8 ,size.to_bytes() as usize);
-                _buf.write_all(&_data);
-                _buf.into_buf();
-            }
-            let _x = now.elapsed().as_nanos();
-*/
-
-            if let Err(e) = libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.to_bytes() as u64) {
-                self.stats
-                    .failed_reads
-                    .fetch_add(size.as_u64(), Ordering::Relaxed);
-                bail!(e)
-            } else {
-            let now = std::time::Instant::now();
-
-            let mut _buf = BufWrite::with_capacity(size);
-            unsafe {
-                let _data  = std::slice::from_raw_parts(self.pfile.0.add(offset.to_bytes() as usize) as *const u8 ,size.to_bytes() as usize);
-                _buf.write_all(&_data);
-                _buf.into_buf();
-            }
-            //let _x = now.elapsed().as_nanos();
-
-
-
-                self.stats.read_duration.lock().unwrap().push((size.to_bytes(), now.elapsed().as_nanos()));
             }
 
             buf.into_full_buf()
-            //let mut buf = BufWrite::with_capacity(size);
-            //buf.write_all(&*_buf);
-            //buf.into_buf()
-        };*/
+        };
 
         /*match checksum.verify(&buf).map_err(VdevError::from) {
             Ok(()) => println!("\n checksum success.."),
@@ -151,12 +105,9 @@ impl VdevRead for PMEMFile {
     async fn read_raw(&self, size: Block<u32>, offset: Block<u64>) -> Result<Vec<Buf>> {
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
         let mut buf = Buf::zeroed(size).into_full_mut();
-       let now = std::time::Instant::now();
-        match libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.to_bytes() as u64) {
-            Ok(()) => {
-                self.stats.read_duration.lock().unwrap().push((size.to_bytes(), now.elapsed().as_nanos()));
-                Ok(vec![buf.into_full_buf()])
-            },
+       
+        match libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.to_bytes() as usize) {
+            Ok(()) => Ok(vec![buf.into_full_buf()]),
             Err(e) => {
                 self.stats
                     .failed_reads
@@ -200,12 +151,9 @@ impl VdevLeafRead for PMEMFile {
     async fn read_raw<T: AsMut<[u8]> + Send>(&self, mut buf: T, offset: Block<u64>) -> Result<T> {
         let size = Block::from_bytes(buf.as_mut().len() as u32);
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
-        let now = std::time::Instant::now();
-        match libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.to_bytes() as u64) {
-            Ok(()) => {
-                self.stats.read_duration.lock().unwrap().push((size.to_bytes(), now.elapsed().as_nanos()));
-                Ok(buf)
-            },
+        
+        match libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.to_bytes() as usize) {
+            Ok(()) => Ok(buf),
             Err(e) => {
                 self.stats
                     .failed_reads
@@ -234,14 +182,11 @@ impl VdevLeafWrite for PMEMFile {
     ) -> Result<()> {      
         let block_cnt = Block::from_bytes(data.as_ref().len() as u64).as_u64();
         self.stats.written.fetch_add(block_cnt, Ordering::Relaxed);
-        let now = std::time::Instant::now();
 
-        let res = libpmem::pmem_file_write( &self.pfile, offset.to_bytes() as usize, data.as_ref(), data.as_ref().len())
-            .map_err(|_| VdevError::Write(self.id.clone()));
-
-        match res {
+        match libpmem::pmem_file_write( &self.pfile, offset.to_bytes() as usize, data.as_ref(), data.as_ref().len())
+            .map_err(|_| VdevError::Write(self.id.clone()))
+        {
             Ok(()) => {
-                self.stats.write_duration.lock().unwrap().push((data.as_ref().len() as u32, now.elapsed().as_nanos()));
                 if is_repair {
                     self.stats.repaired.fetch_add(block_cnt, Ordering::Relaxed);
                 }

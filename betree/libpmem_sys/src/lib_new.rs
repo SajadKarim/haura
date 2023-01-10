@@ -9,7 +9,7 @@ use std::os::raw::c_void;
 use std::ptr::NonNull;
 
 #[derive(Debug)]
-pub struct ptr_to_pmem(pub Arc<*mut c_void>);
+pub struct ptr_to_pmem(Arc<Mutex<*mut c_void>>);
 
 unsafe impl Send for ptr_to_pmem {}
 unsafe impl Sync for ptr_to_pmem {}
@@ -17,7 +17,7 @@ unsafe impl Sync for ptr_to_pmem {}
 pub mod libpmem {
     use super::*;
 
-    pub fn pmem_file_create(filepath : &str, len: u64, mapped_len : &mut u64, is_pmem : &mut i32) -> Option<ptr_to_pmem> {
+    pub fn pmem_file_create(filepath : &str, len: usize, mapped_len : &mut usize, is_pmem : &mut i32) -> Option<ptr_to_pmem> {
         unsafe {
             let mut ptr = pmem_map_file(filepath.as_ptr() as *const i8,
                                      len,
@@ -27,13 +27,13 @@ pub mod libpmem {
                                      is_pmem);
 
             match NonNull::new(ptr) {
-                Some(value) => Some(ptr_to_pmem( Arc::new(ptr))),
+                Some(value) => Some(ptr_to_pmem( Arc::new(Mutex::new(ptr)))),
                 None => None
             }
         }
     }
 
-    pub fn pmem_file_open(filepath: &str, mapped_len: &mut u64, is_pmem: &mut i32) -> Option<ptr_to_pmem> {
+    pub fn pmem_file_open(filepath: &str, mapped_len: &mut usize, is_pmem: &mut i32) -> Option<ptr_to_pmem> {
         unsafe {
             let mut ptr = pmem_map_file(filepath.as_ptr() as *const i8, 
                                      0, // Opening an existing file requires no flag(s).
@@ -43,50 +43,13 @@ pub mod libpmem {
                                      is_pmem);
 
             match NonNull::new(ptr) {
-                Some(value) => Some(ptr_to_pmem( Arc::new(ptr))),
+                Some(value) => Some(ptr_to_pmem( Arc::new(Mutex::new(ptr)))),
                 None => None
             }
         }
     }
 
-
-    pub fn pmem_file_read_ex(begin_pos: &ptr_to_pmem, offset: usize, data: &mut [u8], len: u64, time: &mut u128 ) -> Result<(), std::io::Error>{
-                unsafe {
-                    let a = data.as_ptr() as *mut c_void;
-                    let b = begin_pos.0.add(offset);
-                     let now = std::time::Instant::now();
-                                let ptr = pmem_memcpy(a, b, len, PMEM_F_MEM_NOFLUSH);
-                                *time = now.elapsed().as_nanos();
-                                            Ok(())
-                                                 }
-                    }
-
-    pub fn pmem_file_read(begin_pos: &ptr_to_pmem, offset: usize, data: &mut [u8], len: u64) -> Result<(), std::io::Error>{
-        /*match NonNull::new(*begin_pos.0.lock().unwrap()) {
-            None => {
-                return Err(std::io::Error::new(std::io::ErrorKind::Other,
-                                       format!("File handle is missing for the PMEM file.")
-                                       ));
-            },
-            _ => ()
-        };
-*/
-        unsafe {
-            let ptr = pmem_memcpy(data.as_ptr() as *mut c_void, begin_pos.0.add(offset), len, PMEM_F_MEM_NOFLUSH);
-/*
-            match NonNull::new(ptr) {
-                Some(value) => Ok(()),
-                None => Err(std::io::Error::new(std::io::ErrorKind::Other,
-                                                    format!("Failed to read data from  PMEM file. Offset: {}, Size:  {}",
-                                                            offset, len)))
-            }
-            */
-            Ok(())
-        }
-    }
-
-    pub fn pmem_file_write(begin_pos: &ptr_to_pmem, offset: usize, data: &[u8], len: usize) -> Result<(), std::io::Error>{
-        /*
+    pub fn pmem_file_read(begin_pos: &ptr_to_pmem, offset: usize, data: &mut [u8], len: usize) -> Result<(), std::io::Error>{
         match NonNull::new(*begin_pos.0.lock().unwrap()) {
             None => {
                 return Err(std::io::Error::new(std::io::ErrorKind::Other,
@@ -95,24 +58,44 @@ pub mod libpmem {
             },
             _ => ()
         };
-*/
+
+        unsafe {
+            let ptr = pmem_memcpy(data.as_ptr() as *mut c_void, begin_pos.0.lock().unwrap().add(offset), len, PMEM_F_MEM_NOFLUSH);
+
+            match NonNull::new(ptr) {
+                Some(value) => Ok(()),
+                None => Err(std::io::Error::new(std::io::ErrorKind::Other,
+                                                    format!("Failed to read data from  PMEM file. Offset: {}, Size:  {}",
+                                                            offset, len)))
+            }
+        }
+    }
+
+    pub fn pmem_file_write(begin_pos: &ptr_to_pmem, offset: usize, data: &[u8], len: usize) -> Result<(), std::io::Error>{
+        match NonNull::new(*begin_pos.0.lock().unwrap()) {
+            None => {
+                return Err(std::io::Error::new(std::io::ErrorKind::Other,
+                                       format!("File handle is missing for the PMEM file.")
+                                       ));
+            },
+            _ => ()
+        };
+
         unsafe{
-            let ptr = pmem_memcpy_persist( begin_pos.0.add(offset), data.as_ptr() as *mut c_void, len as u64);
-/*
+            let ptr = pmem_memcpy_persist( begin_pos.0.lock().unwrap().add(offset), data.as_ptr() as *mut c_void, len);
+
             match NonNull::new(ptr) {
                 Some(value) => Ok(()),
                 None => Err(std::io::Error::new(std::io::ErrorKind::Other,
                                                     format!("Failed to write data to PMEM file. Offset: {}, Size:  {}",
                                                             offset, len)))
             }
-            */
-            Ok(())
         }
     }
 
-    pub fn pmem_file_close(pmem: &ptr_to_pmem, mapped_len: &u64) {
+    pub fn pmem_file_close(pmem: &ptr_to_pmem, mapped_len: &usize) {
         unsafe {
-            pmem_unmap(*pmem.0, *mapped_len);
+            pmem_unmap(*pmem.0.lock().unwrap(), *mapped_len);
         }
     }   
 }

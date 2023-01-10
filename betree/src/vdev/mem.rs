@@ -86,11 +86,16 @@ impl VdevRead for Memory {
         checksum: C,
     ) -> Result<Buf> {
         let buf = self.slice_read(size, offset)?;
-        match checksum
+        let now = std::time::Instant::now();
+        let res =  checksum
             .verify(&buf)
-            .map_err(|_| VdevError::Read(self.id.clone()))
-        {
-            Ok(()) => Ok(buf),
+            .map_err(|_| VdevError::Read(self.id.clone()));
+
+         match res{
+            Ok(()) => {
+                self.stats.read_duration.lock().unwrap().push((size.to_bytes(), now.elapsed().as_nanos()));
+                Ok(buf)
+            },
             Err(e) => {
                 self.stats
                     .checksum_errors
@@ -152,11 +157,15 @@ impl VdevLeafRead for Memory {
     async fn read_raw<T: AsMut<[u8]> + Send>(&self, mut buf: T, offset: Block<u64>) -> Result<T> {
         let size = Block::from_bytes(buf.as_mut().len() as u32);
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
-
+        let now = std::time::Instant::now();
         let buf_mut = buf.as_mut();
-        match self.slice(buf_mut.len(), offset.to_bytes() as usize) {
+        let res =  self.slice(buf_mut.len(), offset.to_bytes() as usize);
+
+        match res{
             Ok(src) => {
+
                 buf_mut.copy_from_slice(&src);
+                self.stats.read_duration.lock().unwrap().push((size.to_bytes(), now.elapsed().as_nanos()));
                 Ok(buf)
             }
             Err(e) => {
@@ -185,11 +194,14 @@ impl VdevLeafWrite for Memory {
     ) -> Result<()> {
         let block_cnt = Block::from_bytes(data.as_ref().len() as u64).as_u64();
         self.stats.written.fetch_add(block_cnt, Ordering::Relaxed);
-        match self
+        let now = std::time::Instant::now();
+        let res =  self
             .slice_mut(data.as_ref().len(), offset.to_bytes() as usize)
-            .map(|mut dst| dst.copy_from_slice(data.as_ref()))
-        {
+            .map(|mut dst| dst.copy_from_slice(data.as_ref()));
+
+        match res{
             Ok(()) => {
+                self.stats.write_duration.lock().unwrap().push((data.as_ref().len() as u32, now.elapsed().as_nanos()));
                 if is_repair {
                     self.stats.repaired.fetch_add(block_cnt, Ordering::Relaxed);
                 }

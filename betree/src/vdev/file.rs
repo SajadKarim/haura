@@ -13,6 +13,7 @@ use std::{
     },
     sync::atomic::Ordering,
 };
+use std::sync::{Arc, Mutex};
 
 /// `LeafVdev` that is backed by a file.
 #[derive(Debug)]
@@ -21,6 +22,8 @@ pub struct File {
     id: String,
     size: Block<u64>,
     stats: AtomicStatistics,
+    //read_duration: Arc<Mutex<Vec<u32>>>,
+    //write_duration: Arc<Mutex<Vec<u32>>>,
 }
 
 impl File {
@@ -42,6 +45,8 @@ impl File {
             id,
             size,
             stats: Default::default(),
+            //read_duration: Arc::new(Mutex::new(Vec::new())),
+            //write_duration: Arc::new(Mutex::new(Vec::new())),
         })
     }
 }
@@ -68,13 +73,17 @@ impl VdevRead for File {
         checksum: C,
     ) -> Result<Buf> {
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
+        //let now = std::time::Instant::now();
         let buf = {
             let mut buf = Buf::zeroed(size).into_full_mut();
+            let now = std::time::Instant::now();
             if let Err(e) = self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
                 self.stats
                     .failed_reads
                     .fetch_add(size.as_u64(), Ordering::Relaxed);
                 bail!(e)
+            } else {
+                self.stats.read_duration.lock().unwrap().push((size.to_bytes(), now.elapsed().as_nanos()));
             }
             buf.into_full_buf()
         };
@@ -107,8 +116,11 @@ impl VdevRead for File {
     async fn read_raw(&self, size: Block<u32>, offset: Block<u64>) -> Result<Vec<Buf>> {
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
         let mut buf = Buf::zeroed(size).into_full_mut();
+        let now = std::time::Instant::now();
         match self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
-            Ok(()) => Ok(vec![buf.into_full_buf()]),
+            Ok(()) => {
+                self.stats.read_duration.lock().unwrap().push((size.to_bytes(), now.elapsed().as_nanos())); 
+                Ok(vec![buf.into_full_buf()])},
             Err(e) => {
                 self.stats
                     .failed_reads
@@ -152,8 +164,12 @@ impl VdevLeafRead for File {
     async fn read_raw<T: AsMut<[u8]> + Send>(&self, mut buf: T, offset: Block<u64>) -> Result<T> {
         let size = Block::from_bytes(buf.as_mut().len() as u32);
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
+        let now = std::time::Instant::now();
         match self.file.read_exact_at(buf.as_mut(), offset.to_bytes()) {
-            Ok(()) => Ok(buf),
+            Ok(()) => {
+                self.stats.read_duration.lock().unwrap().push((size.to_bytes(), now.elapsed().as_nanos()));
+                Ok(buf)
+            },
             Err(e) => {
                 self.stats
                     .failed_reads
@@ -180,12 +196,17 @@ impl VdevLeafWrite for File {
     ) -> Result<()> {        
         let block_cnt = Block::from_bytes(data.as_ref().len() as u64).as_u64();
         self.stats.written.fetch_add(block_cnt, Ordering::Relaxed);
-        match self
+
+        let now = std::time::Instant::now();
+        let res = self
             .file
             .write_all_at(data.as_ref(), offset.to_bytes())
-            .map_err(|_| VdevError::Write(self.id.clone()))
+            .map_err(|_| VdevError::Write(self.id.clone()));
+        
+        match res
         {
             Ok(()) => {
+                self.stats.write_duration.lock().unwrap().push((data.as_ref().len() as u32, now.elapsed().as_nanos()));
                 if is_repair {
                     self.stats.repaired.fetch_add(block_cnt, Ordering::Relaxed);
                 }

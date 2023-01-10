@@ -9,5 +9,5 @@ links = "pmem"
 [dependencies]
 
 [build-dependencies]
-bindgen = "*"
+bindgen = "0.58.1"
 

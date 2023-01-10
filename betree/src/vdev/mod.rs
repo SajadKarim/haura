@@ -6,12 +6,13 @@ use crate::{buffer::Buf, checksum::Checksum};
 use async_trait::async_trait;
 use enum_dispatch::enum_dispatch;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 /// Internal block size (4KiB)
 pub const BLOCK_SIZE: usize = 4096;
 
 /// Provides statistics about (failed) requests performed by vdevs.
-#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Statistics {
     /// The total number of blocks of issued read requests
     pub read: Block<u64>,
@@ -24,6 +25,8 @@ pub struct Statistics {
     pub checksum_errors: Block<u64>,
     /// The total number of blocks of failed write requests
     pub failed_writes: Block<u64>,
+    pub read_duration: String,
+    pub write_duration: String,
 }
 
 #[derive(Default, Debug)]
@@ -34,6 +37,8 @@ struct AtomicStatistics {
     checksum_errors: AtomicU64,
     repaired: AtomicU64,
     failed_writes: AtomicU64,
+    read_duration: Arc<Mutex<Vec<(u32,u128)>>>,
+    write_duration: Arc<Mutex<Vec<(u32,u128)>>>,
 }
 
 impl AtomicStatistics {
@@ -44,6 +49,8 @@ impl AtomicStatistics {
             failed_reads: Block(self.failed_reads.load(Ordering::Relaxed)),
             checksum_errors: Block(self.checksum_errors.load(Ordering::Relaxed)),
             failed_writes: Block(self.failed_writes.load(Ordering::Relaxed)),
+            read_duration: format!("{:?}", self.read_duration.lock().unwrap()),
+            write_duration: format!("{:?}", self.write_duration.lock().unwrap()),
         }
     }
 }
