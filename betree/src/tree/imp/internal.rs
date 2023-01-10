@@ -1,4 +1,4 @@
-use super::child_buffer::ChildBuffer;
+use super::{child_buffer::ChildBuffer,MAX_INTERNAL_NODE_SIZE};
 use crate::{
     cow_bytes::{CowBytes, SlicedCowBytes},
     data_management::HasStoragePreference,
@@ -328,6 +328,36 @@ where
             })
         } else {
             None
+        }
+    }
+
+    pub fn try_walk_by_idx(&mut self, idx: usize) -> Option<TakeChildBuffer<ChildBuffer<N>>> {
+        //println!("try_Walk_by_idx {} total {}", idx, self.children.len());
+        let child_idx = idx;
+        if idx >= self.children.len() {
+            //println!("return...");
+            return None;
+        }
+
+        match self.children[idx].actual_size() {
+            Some(len) => {
+                if len > MAX_INTERNAL_NODE_SIZE {
+                    //println!("exceeds length.. {}", len);
+                    Some(TakeChildBuffer {
+                        node: self,
+                        child_idx,
+                    })
+                } else {
+                    //println!("does not exceeds length {}", self.children[idx].size());
+                    //None
+                     Some(TakeChildBuffer {
+                        node: self,
+                        child_idx,
+                    })
+
+                }
+            },
+            None => {/*println!("return none..");*/ None}
         }
     }
 

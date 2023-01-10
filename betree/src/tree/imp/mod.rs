@@ -44,12 +44,12 @@ impl KeyInfo {
     }
 }
 
-pub(super) const MAX_INTERNAL_NODE_SIZE: usize = 4 * 1024 * 1024;
-const MIN_FLUSH_SIZE: usize = 256 * 1024;
+pub(super) const MAX_INTERNAL_NODE_SIZE: usize = 1024;
+const MIN_FLUSH_SIZE: usize = 64;
 const MIN_FANOUT: usize = 4;
-const MIN_LEAF_NODE_SIZE: usize = 1 * 1024 * 1024;
+const MIN_LEAF_NODE_SIZE: usize = 256;
 const MAX_LEAF_NODE_SIZE: usize = MAX_INTERNAL_NODE_SIZE;
-pub(crate) const MAX_MESSAGE_SIZE: usize = 512 * 1024;
+pub(crate) const MAX_MESSAGE_SIZE: usize = 128;
 
 /// The actual tree type.
 pub struct Tree<X: DmlBase, M, I: Borrow<Inner<X::ObjectRef, X::Info, M>>> {
@@ -446,6 +446,68 @@ where
         Ok(RangeIterator::new(range, self.clone()))
     }
 
+    fn sync_ex(&self) -> Result<(), Error> {
+//return Ok(());
+        loop {
+            let mut parent = None;
+//println!("insdie sync..");
+                {
+                    let mut node = self.get_mut_root_node()?;
+ 
+//println!("node size {}", node.size_ex());
+                    if (!node.is_too_large()) {
+                        break;
+                    }
+//println!("call for parent!");
+                    self.fixup_foo(node, parent)?;
+                }
+
+                {
+                    //let mut node = self.get_mut_root_node()?;
+//println!("after {}", node.size_ex());
+
+            let mut idx = 0;
+            loop {
+                let mut node = self.get_mut_root_node()?;
+    //            println!("after {}", node.size_ex());
+
+                match Ref::try_new(node, |node| node.try_walk_by_idx(idx)) {
+                    Ok(mut child_buffer) => {
+                        if let Some(child) = self.try_get_mut_node(child_buffer.node_pointer_mut())
+                        {
+  //                          println!("found item..");
+                            node = child;
+                            parent = Some(child_buffer);
+                            //break;
+                        } else {
+      //                      println!("else..");
+                            break;
+                        }
+                    }
+                    Err(node) => { /*println!("error.."); */break},
+                };
+
+                let is_too_large = node.is_too_large();
+
+//println!("call for node.. idx: {}", idx);
+                self.fixup_foo(node, parent)?;
+
+                if( !is_too_large) {
+                    idx+=1;
+                }
+            } 
+            }
+        }
+//println!("proceeding with the rest..");
+//unsafe{
+//num += 1;
+//if num == 10 {
+//panic!("..");
+//}
+ Ok(())
+//}
+    }
+    
     fn sync(&self) -> Result<Self::Pointer, Error> {
         // TODO
         let obj_ptr = self
@@ -454,6 +516,8 @@ where
         Ok(obj_ptr)
     }
 }
+
+static mut num : u32 = 0;
 
 impl<X, R, M, I> ErasedTreeSync for Tree<X, M, I>
 where
@@ -467,6 +531,10 @@ where
     fn erased_sync(&self) -> Result<Self::Pointer, Error> {
         TreeLayer::sync(self)
     }
+    fn erased_sync_ex(&self) -> Result<(), Error> {
+        TreeLayer::sync_ex(self)
+    }
+
     fn erased_try_lock_root(
         &self,
     ) -> Option<OwningRef<RwLockWriteGuard<Self::ObjectRef>, Self::Pointer>> {

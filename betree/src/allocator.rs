@@ -9,7 +9,7 @@ use byteorder::{BigEndian, ByteOrder};
 pub const SEGMENT_SIZE: usize = 1 << SEGMENT_SIZE_LOG_2;
 /// Number of bytes required to store a segments allocation bitmap
 pub const SEGMENT_SIZE_BYTES: usize = SEGMENT_SIZE / 8;
-const SEGMENT_SIZE_LOG_2: usize = 18;
+const SEGMENT_SIZE_LOG_2: usize = 8;//18;
 const SEGMENT_SIZE_MASK: usize = SEGMENT_SIZE - 1;
 
 /// Simple first-fit bitmap allocator

@@ -8,7 +8,7 @@ use enum_dispatch::enum_dispatch;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Internal block size (4KiB)
-pub const BLOCK_SIZE: usize = 4096;
+pub const BLOCK_SIZE: usize = 512;//4096;
 
 /// Provides statistics about (failed) requests performed by vdevs.
 #[derive(Debug, Clone, Copy, serde::Serialize)]

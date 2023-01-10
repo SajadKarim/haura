@@ -421,6 +421,20 @@ impl<Config: DatabaseBuilder> Database<Config> {
         }
         Ok(())
     }
+    pub fn sync_ex(&mut self) -> Result<()> {
+        println!("insdie sync_ex of database");
+        let mut ds_locks = Vec::with_capacity(self.open_datasets.len());
+        for (&ds_id, ds_tree) in &self.open_datasets {
+            //loop {
+                if let Some(lock) = ds_tree.erased_try_lock_root() {
+                    ds_locks.push(lock);
+                    break;
+                }
+                ds_tree.erased_sync_ex();
+            //}
+        }
+        Ok(())
+    }
 
     /// Synchronizes the database.
     pub fn sync(&mut self) -> Result<()> {

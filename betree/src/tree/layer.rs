@@ -48,6 +48,7 @@ pub trait TreeLayer<M: MessageAction>: TreeBaseLayer<M> {
 
     /// Sync the tree to disk.
     fn sync(&self) -> Result<Self::Pointer, Error>;
+    fn sync_ex(&self) -> Result<(), Error>;
 }
 
 /// Special-purpose interface to allow for storing and syncing trees of different message types.
@@ -55,6 +56,7 @@ pub(crate) trait ErasedTreeSync {
     type Pointer;
     type ObjectRef;
     fn erased_sync(&self) -> Result<Self::Pointer, Error>;
+    fn erased_sync_ex(&self) -> Result<(), Error>;
     // ObjectRef is not object-safe, but we only need the lock, not the value
     // FIXME: find an actual abstraction, instead of encoding implementation details into this trait
     fn erased_try_lock_root(

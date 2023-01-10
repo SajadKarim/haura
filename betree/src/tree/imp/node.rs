@@ -133,6 +133,13 @@ impl<N: StaticSize + HasStoragePreference> Node<N> {
         }
     }
 
+    pub(super) fn try_walk_by_idx(&mut self, idx: usize) -> Option<TakeChildBuffer<ChildBuffer<N>>> {
+        match self.0 {
+            Leaf(_) | PackedLeaf(_) => { None},
+            Internal(ref mut internal) => { internal.try_walk_by_idx(idx)},
+        }
+    }
+
     pub(super) fn try_flush(&mut self) -> Option<TakeChildBuffer<ChildBuffer<N>>> {
         match self.0 {
             Leaf(_) | PackedLeaf(_) => None,
@@ -146,9 +153,18 @@ impl<N: StaticSize + HasStoragePreference> Node<N> {
         match self.0 {
             PackedLeaf(ref map) => map.size() > MAX_LEAF_NODE_SIZE,
             Leaf(ref leaf) => leaf.size() > MAX_LEAF_NODE_SIZE,
-            Internal(ref internal) => internal.size() > MAX_INTERNAL_NODE_SIZE,
+            Internal(ref internal) =>{ /*println!("internal node size {}", internal.size());*/ internal.size() > MAX_INTERNAL_NODE_SIZE},
         }
     }
+
+    pub(super) fn size_ex(&self) -> usize {
+        match self.0 {
+            PackedLeaf(ref map) => map.size(),
+            Leaf(ref leaf) => leaf.size(),
+            Internal(ref internal) => internal.size(),
+        }
+    }
+
 }
 
 impl<N: HasStoragePreference + StaticSize> Node<N> {

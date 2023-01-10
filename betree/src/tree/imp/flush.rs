@@ -137,8 +137,8 @@ impl<T: StableDeref + DerefMut, U> Ref<T, TakeChildBuffer<'static, U>> {
         F: for<'a> FnOnce(&'a mut T::Target) -> Option<TakeChildBuffer<'a, U>>,
     {
         match unsafe { transmute(f(&mut owner)) } {
-            None => Err(owner),
-            Some(inner) => Ok(Ref { owner, inner }),
+            None => {/*println!("try_new none");*/ Err(owner)},
+            Some(inner) => {/*println!("try_new some");*/ Ok(Ref { owner, inner })},
         }
     }
 

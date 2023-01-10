@@ -1,9 +1,9 @@
 use std::iter;
 
 /// 128 kibibyte
-pub const CHUNK_SIZE: u32 = 128 * 1024;
+pub const CHUNK_SIZE: u32 = 32;
 
-pub const CHUNK_MAX: u32 = u32::MAX - 1024;
+pub const CHUNK_MAX: u32 = u32::MAX - 1;
 // pub const CHUNK_META_SIZE: u32 = CHUNK_MAX + 1;
 // pub const CHUNK_META_MODIFICATION_TIME: u32 = CHUNK_MAX + 2;
 

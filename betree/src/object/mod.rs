@@ -630,7 +630,7 @@ impl<'ds, Config: DatabaseBuilder> ObjectHandle<'ds, Config> {
         for chunk in chunk_range.split_at_chunk_bounds() {
             let len = chunk.single_chunk_len() as usize;
             let key = object_chunk_key(self.object.id, chunk.start.chunk_id);
-
+//println!("chunk {}", chunk.start.chunk_id);
             self.store
                 .data
                 .upsert_with_pref(&key[..], &buf[..len], chunk.start.offset, storage_pref)

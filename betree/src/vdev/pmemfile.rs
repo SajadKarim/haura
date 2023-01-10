@@ -62,7 +62,7 @@ impl VdevRead for PMEMFile {
         let buf = {
             let mut buf = Buf::zeroed(size).into_full_mut();
 
-            if let Err(e) = libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.to_bytes() as usize) {
+            if let Err(e) = libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.to_bytes() as u64) {
                 self.stats
                     .failed_reads
                     .fetch_add(size.as_u64(), Ordering::Relaxed);
@@ -106,7 +106,7 @@ impl VdevRead for PMEMFile {
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
         let mut buf = Buf::zeroed(size).into_full_mut();
        
-        match libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.to_bytes() as usize) {
+        match libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.to_bytes() as u64) {
             Ok(()) => Ok(vec![buf.into_full_buf()]),
             Err(e) => {
                 self.stats
@@ -152,7 +152,7 @@ impl VdevLeafRead for PMEMFile {
         let size = Block::from_bytes(buf.as_mut().len() as u32);
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
         
-        match libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.to_bytes() as usize) {
+        match libpmem::pmem_file_read( &self.pfile, offset.to_bytes() as usize, buf.as_mut(), size.to_bytes() as u64) {
             Ok(()) => Ok(buf),
             Err(e) => {
                 self.stats

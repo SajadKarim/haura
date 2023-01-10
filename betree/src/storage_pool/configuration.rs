@@ -256,7 +256,7 @@ impl LeafVdev {
                     LeafVdev::PMEMFile {path, len} => (path, len),
                 };
 
-                let mut is_pmem : i32 = 0;
+                /*let mut is_pmem : i32 = 0;
                 let mut mapped_len : u64 = 0;
                 let mut pfile = match path.to_str() {
                     Some(filepath_str) => match libpmem::pmem_file_create(filepath_str, *len as u64, &mut mapped_len, &mut is_pmem) {
@@ -273,7 +273,26 @@ impl LeafVdev {
                                               format!("Invalid file path: {:?}", 
                                                       path)))
                     }
+                };*/
+                let mut is_pmem : i32 = 0;
+                let mut mapped_len : u64 = 0;
+                let mut pfile = match path.to_str() {
+                    Some(filepath_str) => match libpmem::pmem_file_open(format!("{}\0",filepath_str).as_str(), &mut mapped_len, &mut is_pmem) { //match libpmem::pmem_file_create(filepath_str, *len as u64, &mut mapped_len, &mut is_pmem) {
+                        Some(existing_handle) => existing_handle,
+                        None => match libpmem::pmem_file_create(format!("{}\0",filepath_str).as_str(), *len as u64, &mut mapped_len, &mut is_pmem) {//match libpmem::pmem_file_open(filepath_str, &mut mapped_len, &mut is_pmem) {
+                            Some(new_handle) => new_handle,
+                            None =>  panic!(io::Error::new(io::ErrorKind::Other,
+                                                           format!("Failed to create or open handle for pmem file. Path: {}",
+                                                                   filepath_str)))
+                        }
+                    },
+                    None => {
+                        panic!(io::Error::new(io::ErrorKind::Other,
+                                              format!("Invalid file path: {:?}",
+                                                      path)))
+                    }
                 };
+
 
                 if (mapped_len != *len as u64) {
                      panic!(io::Error::new(io::ErrorKind::Other,
