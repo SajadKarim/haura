@@ -11,11 +11,11 @@ use super::{
 use crate::{
     cache::AddSize,
     cow_bytes::{CowBytes, SlicedCowBytes},
-    data_management::{Dml, HasStoragePreference, ObjectReference},
+    nvm_data_management::{Dml, HasStoragePreference, ObjectReference},
     database::DatasetId,
     range_validation::is_inclusive_non_empty,
     size::StaticSize,
-    tree::MessageAction,
+    nvmtree::MessageAction,
     StoragePreference,
 };
 use leaf::FillUpResult;

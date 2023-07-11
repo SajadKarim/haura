@@ -6,11 +6,11 @@ use super::{
 };
 use crate::{
     cow_bytes::{CowBytes, SlicedCowBytes},
-    data_management::{HasStoragePreference, ObjectReference},
+    nvm_data_management::{HasStoragePreference, ObjectReference},
     database::DatasetId,
     size::{Size, SizeMut, StaticSize},
     storage_pool::AtomicSystemStoragePreference,
-    tree::{pivot_key::LocalPivotKey, KeyInfo, MessageAction},
+    nvmtree::{pivot_key::LocalPivotKey, KeyInfo, MessageAction},
     AtomicStoragePreference, StoragePreference,
 };
 use bincode::serialized_size;
@@ -33,7 +33,7 @@ pub(super) struct InternalNode<T> {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-pub(super) struct NVMInternalNode<T> {
+pub(super) struct NVMInternalNode {
     level: u32,
     data_size: usize,
     data: CowBytes, // SajadKarim: Same node to store the node's layout can be stored for both the nodes.. first bit in data can be used to distinguish between leaf and internal node.

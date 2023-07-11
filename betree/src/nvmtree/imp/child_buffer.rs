@@ -4,10 +4,10 @@
 //! [super::leaf::LeafNode].
 use crate::{
     cow_bytes::{CowBytes, SlicedCowBytes},
-    data_management::{HasStoragePreference, ObjectReference},
+    nvm_data_management::{HasStoragePreference, ObjectReference},
     size::{Size, StaticSize},
     storage_pool::AtomicSystemStoragePreference,
-    tree::{pivot_key::LocalPivotKey, KeyInfo, MessageAction, PivotKey},
+    nvmtree::{pivot_key::LocalPivotKey, KeyInfo, MessageAction, PivotKey},
     AtomicStoragePreference, StoragePreference,
 };
 use parking_lot::RwLock;

@@ -5,8 +5,8 @@ use super::{
 };
 use crate::{
     cow_bytes::{CowBytes, SlicedCowBytes},
-    data_management::{Dml, HasStoragePreference, ObjectReference},
-    tree::{errors::*, Key, KeyInfo, MessageAction, Value},
+    nvm_data_management::{Dml, HasStoragePreference, ObjectReference},
+    nvmtree::{errors::*, Key, KeyInfo, MessageAction, Value},
 };
 use std::{
     borrow::Borrow,

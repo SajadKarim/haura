@@ -2,9 +2,9 @@
 use super::{child_buffer::ChildBuffer, internal::TakeChildBuffer, Inner, Node, Tree};
 use crate::{
     cache::AddSize,
-    data_management::{Dml, HasStoragePreference, ObjectReference},
+    nvm_data_management::{Dml, HasStoragePreference, ObjectReference},
     size::Size,
-    tree::{errors::*, MessageAction},
+    nvmtree::{errors::*, MessageAction},
 };
 use std::borrow::Borrow;
 

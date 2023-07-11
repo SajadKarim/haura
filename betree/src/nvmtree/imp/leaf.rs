@@ -1,10 +1,10 @@
 //! Implementation of the [LeafNode] node type.
 use crate::{
     cow_bytes::{CowBytes, SlicedCowBytes},
-    data_management::HasStoragePreference,
+    nvm_data_management::HasStoragePreference,
     size::Size,
     storage_pool::AtomicSystemStoragePreference,
-    tree::{imp::packed, pivot_key::LocalPivotKey, KeyInfo, MessageAction},
+    nvmtree::{imp::packed, pivot_key::LocalPivotKey, KeyInfo, MessageAction},
     AtomicStoragePreference, StoragePreference,
 };
 use std::{borrow::Borrow, collections::BTreeMap, iter::FromIterator};
@@ -151,15 +151,15 @@ impl LeafNode {
         self.entries.get(key).map(|(_info, data)| data).cloned()
     }
 
-    pub(in crate::tree) fn get_with_info(&self, key: &[u8]) -> Option<(KeyInfo, SlicedCowBytes)> {
+    pub(in crate::nvmtree) fn get_with_info(&self, key: &[u8]) -> Option<(KeyInfo, SlicedCowBytes)> {
         self.entries.get(key).cloned()
     }
 
-    pub(in crate::tree) fn entries(&self) -> &BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)> {
+    pub(in crate::nvmtree) fn entries(&self) -> &BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)> {
         &self.entries
     }
 
-    pub(in crate::tree) fn entry_info(&mut self, key: &[u8]) -> Option<&mut KeyInfo> {
+    pub(in crate::nvmtree) fn entry_info(&mut self, key: &[u8]) -> Option<&mut KeyInfo> {
         self.entries.get_mut(key).map(|e| &mut e.0)
     }
 

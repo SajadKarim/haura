@@ -11,9 +11,9 @@ use super::{
 };
 use crate::{
     cache::AddSize,
-    data_management::{Dml, HasStoragePreference, ObjectReference},
+    nvm_data_management::{Dml, HasStoragePreference, ObjectReference},
     size::Size,
-    tree::{errors::*, imp::internal::MergeChildResult, MessageAction},
+    nvmtree::{errors::*, imp::internal::MergeChildResult, MessageAction},
 };
 
 impl<X, R, M, I> Tree<X, M, I>

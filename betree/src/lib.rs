@@ -29,6 +29,8 @@ pub mod range_validation;
 pub mod size;
 pub mod storage_pool;
 pub mod tree;
+pub mod nvmtree;
+pub mod nvm_data_management;
 pub mod vdev;
 
 pub mod metrics;

@@ -10,11 +10,11 @@ use super::{
 };
 use crate::{
     cow_bytes::{CowBytes, SlicedCowBytes},
-    data_management::{Dml, HasStoragePreference, Object, ObjectReference},
+    nvm_data_management::{Dml, HasStoragePreference, Object, ObjectReference},
     database::DatasetId,
     size::{Size, SizeMut, StaticSize},
     storage_pool::DiskOffset,
-    tree::{pivot_key::LocalPivotKey, MessageAction},
+    nvmtree::{pivot_key::LocalPivotKey, MessageAction},
     StoragePreference,
 };
 use bincode::{deserialize, serialize_into};

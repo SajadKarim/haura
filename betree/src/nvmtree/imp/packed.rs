@@ -4,9 +4,9 @@
 use super::leaf::LeafNode;
 use crate::{
     cow_bytes::{CowBytes, SlicedCowBytes},
-    data_management::HasStoragePreference,
+    nvm_data_management::HasStoragePreference,
     size::Size,
-    tree::KeyInfo,
+    nvmtree::KeyInfo,
     StoragePreference,
 };
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
