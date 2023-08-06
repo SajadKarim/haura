@@ -96,14 +96,14 @@ impl<C: Checksum> StoragePoolLayer for StoragePoolUnit<C> {
                     tier_cfg
                         .build()
                         .map(Vec::into_boxed_slice)
-                        .map(|tier| (tier, tier_cfg.preferred_access_type).into())
+                        .map(|tier| (tier, tier_cfg.preferred_access_type).into())  //Q
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
             assert!(vec.len() <= NUM_STORAGE_CLASSES, "too many storage classes");
             vec.resize_with(NUM_STORAGE_CLASSES, Default::default);
             let boxed: Box<[StorageTier; NUM_STORAGE_CLASSES]> =
-                vec.into_boxed_slice().try_into().map_err(|_| ()).unwrap();
+                vec.into_boxed_slice().try_into().map_err(|_| ()).unwrap(); //Q
             *boxed
         };
 

@@ -31,6 +31,32 @@ pub(super) struct InternalNode<T> {
     children: Vec<T>,
 }
 
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(super) struct NVMInternalNode<'a, T> {
+    meta_data: NVMInternalNodeMetaData,
+    data: NVMInternalNodeData<'a, T>,
+}
+
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(super) struct NVMInternalNodeMetaData {
+    level: u32,
+    entries_size: usize,
+    #[serde(skip)]
+    system_storage_preference: AtomicSystemStoragePreference,
+    #[serde(skip)]
+    pref: AtomicStoragePreference,
+    pub(super) pivot: Vec<CowBytes>,
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(super) struct NVMInternalNodeData<'a, T> {
+    children: &'a Vec<T>,
+}
+
 // @tilpner:
 // Previously, this literal was magically spread across the code below, and I've (apparently
 // correctly) guessed it to be the fixed size of an empty InternalNode<_> when encoded with bincode.

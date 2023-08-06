@@ -16,6 +16,7 @@ pub struct ObjectPointer<D> {
     pub(super) checksum: D,
     pub(super) offset: DiskOffset,
     pub(super) size: Block<u32>,
+    // TODO: SK separate metadata and data sizes!! in the context of NVM!
     pub(super) info: DatasetId,
     pub(super) generation: Generation,
 }

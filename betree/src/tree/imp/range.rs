@@ -42,7 +42,7 @@ pub struct RangeIterator<X: Dml, M, I: Borrow<Inner<X::ObjectRef, M>>> {
 
 impl<X, R, M, I> Iterator for RangeIterator<X, M, I>
 where
-    X: Dml<Object = Node<R>, ObjectRef = R>,
+    X: Dml<Object = Node<'static, R>, ObjectRef = R>,
     R: ObjectReference<ObjectPointer = X::ObjectPointer> + HasStoragePreference,
     M: MessageAction,
     I: Borrow<Inner<X::ObjectRef, M>>,
@@ -65,7 +65,7 @@ where
 
 impl<X, R, M, I> RangeIterator<X, M, I>
 where
-    X: Dml<Object = Node<R>, ObjectRef = R>,
+    X: Dml<Object = Node<'static, R>, ObjectRef = R>,
     R: ObjectReference<ObjectPointer = X::ObjectPointer> + HasStoragePreference,
     M: MessageAction,
     I: Borrow<Inner<X::ObjectRef, M>>,
@@ -159,7 +159,7 @@ where
 
 impl<X, R, M, I> Tree<X, M, I>
 where
-    X: Dml<Object = Node<R>, ObjectRef = R>,
+    X: Dml<Object = Node<'static, R>, ObjectRef = R>,
     R: ObjectReference<ObjectPointer = X::ObjectPointer> + HasStoragePreference,
     M: MessageAction,
     I: Borrow<Inner<X::ObjectRef, M>>,

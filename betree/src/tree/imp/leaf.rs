@@ -9,6 +9,8 @@ use crate::{
 };
 use std::{borrow::Borrow, collections::BTreeMap, iter::FromIterator};
 
+use serde::{Deserialize, Serialize};
+
 /// A leaf node of the tree holds pairs of keys values which are plain data.
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq))]
@@ -18,6 +20,35 @@ pub(super) struct LeafNode {
     system_storage_preference: AtomicSystemStoragePreference,
     entries_size: usize,
     entries: BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)>,
+}
+
+/*impl<K, V> Default for BTreeMap<K, V>
+{
+    fn default(&self) -> BTreeMap<K, V> {
+        BTreeMap::<K, V>::new()
+    }
+}*/
+
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(super) struct NVMLeafNode<'a> {
+    meta_data: NVMLeafNodeMetaData,
+    data: NVMLeafNodeData<'a>,
+}
+
+#[derive(Debug, Clone,  Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(super) struct NVMLeafNodeMetaData {
+    storage_preference: AtomicStoragePreference,
+    /// A storage preference assigned by the Migration Policy
+    system_storage_preference: AtomicSystemStoragePreference,
+    entries_size: usize,
+}
+
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(super) struct NVMLeafNodeData<'a> {
+    data: &'a BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)>,
 }
 
 /// Case-dependent outcome of a rebalance operation.

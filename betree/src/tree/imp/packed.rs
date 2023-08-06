@@ -297,4 +297,11 @@ mod tests {
             packed.get_all().collect::<Vec<_>>()
         );
     }
+
+        #[test]
+    fn test_pack() {
+        println!("Test successful!");
+    }
+
+
 }

@@ -18,9 +18,6 @@ use crate::{
     tree::{
         DefaultMessageAction, ErasedTreeSync, Inner as TreeInner, Node, PivotKey, Tree, TreeLayer,
     },
-    /*nvmtree::{
-        DefaultMessageAction, ErasedTreeSync, Inner as TreeInner, Node, PivotKey, Tree, TreeLayer,
-    },*/
     vdev::Block,
     StoragePreference,
 };
@@ -74,7 +71,7 @@ type Checksum = XxHash;
 
 type ObjectPointer = data_management::ObjectPointer<Checksum>;
 pub(crate) type ObjectRef = data_management::impls::ObjRef<ObjectPointer>;
-pub(crate) type Object = Node<ObjectRef>;
+pub(crate) type Object = Node<'static, ObjectRef>;
 type DbHandler = Handler<ObjectRef>;
 
 pub(crate) type RootSpu = StoragePoolUnit<XxHash>;

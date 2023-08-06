@@ -112,7 +112,7 @@ impl<R, M> Inner<R, M> {
 
 impl<X, R, M, I> Tree<X, M, I>
 where
-    X: Dml<Object = Node<R>, ObjectRef = R>,
+    X: Dml<Object = Node<'static, R>, ObjectRef = R>,
     R: ObjectReference<ObjectPointer = X::ObjectPointer> + HasStoragePreference,
     M: MessageAction,
     I: Borrow<Inner<X::ObjectRef, M>> + From<Inner<X::ObjectRef, M>>,
@@ -164,7 +164,7 @@ where
 
 impl<X, R, M, I> Tree<X, M, I>
 where
-    X: Dml<Object = Node<R>, ObjectRef = R>,
+    X: Dml<Object = Node<'static, R>, ObjectRef = R>,
     R: ObjectReference<ObjectPointer = X::ObjectPointer>,
     M: MessageAction,
     I: Borrow<Inner<X::ObjectRef, M>>,
@@ -207,7 +207,7 @@ where
 
 impl<X, R, M, I> Tree<X, M, I>
 where
-    X: Dml<Object = Node<R>, ObjectRef = R>,
+    X: Dml<Object = Node<'static, R>, ObjectRef = R>,
     R: ObjectReference<ObjectPointer = X::ObjectPointer> + HasStoragePreference,
     M: MessageAction,
     I: Borrow<Inner<X::ObjectRef, M>>,
@@ -441,7 +441,7 @@ where
 
 impl<X, R, M, I> TreeLayer<M> for Tree<X, M, I>
 where
-    X: Dml<Object = Node<R>, ObjectRef = R>,
+    X: Dml<Object = Node<'static, R>, ObjectRef = R>,
     R: ObjectReference<ObjectPointer = X::ObjectPointer> + HasStoragePreference,
     M: MessageAction,
     I: Borrow<Inner<X::ObjectRef, M>>,
@@ -536,7 +536,7 @@ where
 
 impl<X, R, M, I> ErasedTreeSync for Tree<X, M, I>
 where
-    X: Dml<Object = Node<R>, ObjectRef = R>,
+    X: Dml<Object = Node<'static, R>, ObjectRef = R>,
     R: ObjectReference<ObjectPointer = X::ObjectPointer> + HasStoragePreference,
     M: MessageAction,
     I: Borrow<Inner<R, M>>,

@@ -126,7 +126,7 @@ impl<E, SPL> Dmu<E, SPL>
 where
     E: Cache<
         Key = ObjectKey<Generation>,
-        Value = TaggedCacheValue<RwLock<Node<ObjRef<ObjectPointer<SPL::Checksum>>>>, PivotKey>,
+        Value = TaggedCacheValue<RwLock<Node<'static, ObjRef<ObjectPointer<SPL::Checksum>>>>, PivotKey>,
     >,
     SPL: StoragePoolLayer,
     SPL::Checksum: StaticSize,
@@ -677,14 +677,14 @@ impl<E, SPL> super::Dml for Dmu<E, SPL>
 where
     E: Cache<
         Key = ObjectKey<Generation>,
-        Value = TaggedCacheValue<RwLock<Node<ObjRef<ObjectPointer<SPL::Checksum>>>>, PivotKey>,
+        Value = TaggedCacheValue<RwLock<Node<'static, ObjRef<ObjectPointer<SPL::Checksum>>>>, PivotKey>,
     >,
     SPL: StoragePoolLayer,
     SPL::Checksum: StaticSize,
 {
     type ObjectPointer = ObjectPointer<SPL::Checksum>;
     type ObjectRef = ObjRef<Self::ObjectPointer>;
-    type Object = Node<Self::ObjectRef>;
+    type Object = Node<'static, Self::ObjectRef>;
     type CacheValueRef = CacheValueRef<E::ValueRef, RwLockReadGuard<'static, Self::Object>>;
     type CacheValueRefMut = CacheValueRef<E::ValueRef, RwLockWriteGuard<'static, Self::Object>>;
     type Spl = SPL;
@@ -819,7 +819,7 @@ where
     fn get_and_remove(
         &self,
         mut or: Self::ObjectRef,
-    ) -> Result<Node<ObjRef<ObjectPointer<SPL::Checksum>>>, Error> {
+    ) -> Result<Node<'static, ObjRef<ObjectPointer<SPL::Checksum>>>, Error> {
         let obj = loop {
             self.get(&mut or)?;
             match self.cache.write().remove(&or.as_key(), |obj| obj.size()) {
@@ -975,11 +975,11 @@ where
     }
 }
 
-impl<E, SPL> super::DmlWithHandler for Dmu<E, SPL>
+impl<'nvm, E, SPL> super::DmlWithHandler for Dmu<E, SPL>
 where
     E: Cache<
         Key = ObjectKey<Generation>,
-        Value = TaggedCacheValue<RwLock<Node<ObjRef<ObjectPointer<SPL::Checksum>>>>, PivotKey>,
+        Value = TaggedCacheValue<RwLock<Node<'nvm, ObjRef<ObjectPointer<SPL::Checksum>>>>, PivotKey>,
     >,
     SPL: StoragePoolLayer,
     SPL::Checksum: StaticSize,
@@ -995,7 +995,7 @@ impl<E, SPL> super::DmlWithStorageHints for Dmu<E, SPL>
 where
     E: Cache<
         Key = ObjectKey<Generation>,
-        Value = TaggedCacheValue<RwLock<Node<ObjRef<ObjectPointer<SPL::Checksum>>>>, PivotKey>,
+        Value = TaggedCacheValue<RwLock<Node<'static, ObjRef<ObjectPointer<SPL::Checksum>>>>, PivotKey>,
     >,
     SPL: StoragePoolLayer,
     SPL::Checksum: StaticSize,
@@ -1013,7 +1013,7 @@ impl<E, SPL> super::DmlWithReport for Dmu<E, SPL>
 where
     E: Cache<
         Key = ObjectKey<Generation>,
-        Value = TaggedCacheValue<RwLock<Node<ObjRef<ObjectPointer<SPL::Checksum>>>>, PivotKey>,
+        Value = TaggedCacheValue<RwLock<Node<'static, ObjRef<ObjectPointer<SPL::Checksum>>>>, PivotKey>,
     >,
     SPL: StoragePoolLayer,
     SPL::Checksum: StaticSize,
