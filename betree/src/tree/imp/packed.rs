@@ -1,7 +1,7 @@
 //! On-disk representation of a node.
 //!
 //! Can be used for read-only access to avoid deserialization.
-use super::leaf::LeafNode;
+use super::leaf::{LeafNode, NVMLeafNode};
 use crate::{
     cow_bytes::{CowBytes, SlicedCowBytes},
     data_management::HasStoragePreference,
@@ -228,6 +228,32 @@ impl PackedMap {
     }
 
     pub(super) fn pack<W: Write>(leaf: &LeafNode, mut writer: W) -> io::Result<()> {
+        let entries = leaf.entries();
+        let entries_cnt = entries.len() as u32;
+        writer.write_u32::<LittleEndian>(entries_cnt)?;
+        writer.write_u8(leaf.system_storage_preference().as_u8())?;
+
+        let mut pos = prefix_size(entries_cnt) as u32;
+        for (key, (keyinfo, value)) in entries {
+            writer.write_u24::<LittleEndian>(pos)?;
+            pos += key.len() as u32;
+
+            writer.write_u8(keyinfo.storage_preference.as_u8())?;
+
+            writer.write_u24::<LittleEndian>(pos)?;
+            pos += value.len() as u32;
+        }
+
+        writer.write_u24::<LittleEndian>(pos)?;
+
+        for (key, (_keyinfo, value)) in entries {
+            writer.write_all(key)?;
+            writer.write_all(value)?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn pack_<W: Write>(leaf: &NVMLeafNode, mut writer: W) -> io::Result<()> {
         let entries = leaf.entries();
         let entries_cnt = entries.len() as u32;
         writer.write_u32::<LittleEndian>(entries_cnt)?;

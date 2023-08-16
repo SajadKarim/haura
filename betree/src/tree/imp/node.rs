@@ -23,7 +23,7 @@ use std::{
     borrow::Borrow,
     collections::BTreeMap,
     io::{self, Write},
-    mem::replace,
+    mem::replace, default,
 };
 
 /// The tree node type.
@@ -46,7 +46,7 @@ impl<R: HasStoragePreference + StaticSize> HasStoragePreference for Node<R> {
             Leaf(ref leaf) => leaf.current_preference(),
             Internal(ref internal) => internal.current_preference(),
             NVMLeaf(ref leaf) => leaf.current_preference(),
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref internal) => internal.current_preference(),
         }
     }
 
@@ -58,7 +58,7 @@ impl<R: HasStoragePreference + StaticSize> HasStoragePreference for Node<R> {
             Leaf(ref leaf) => leaf.recalculate(),
             Internal(ref internal) => internal.recalculate(),
             NVMLeaf(ref leaf) => leaf.recalculate(),
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref internal) => internal.recalculate(),
         }
     }
 
@@ -69,7 +69,7 @@ impl<R: HasStoragePreference + StaticSize> HasStoragePreference for Node<R> {
             Leaf(ref leaf) => leaf.system_storage_preference(),
             Internal(ref int) => int.system_storage_preference(),
             NVMLeaf(ref leaf) => leaf.system_storage_preference(),
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref internal) => internal.system_storage_preference(),
         }
     }
 
@@ -83,7 +83,7 @@ impl<R: HasStoragePreference + StaticSize> HasStoragePreference for Node<R> {
             Leaf(ref mut leaf) => leaf.set_system_storage_preference(pref),
             Internal(ref mut int) => int.set_system_storage_preference(pref),
             NVMLeaf(ref mut leaf) => leaf.set_system_storage_preference(pref),
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref mut internal) => internal.set_system_storage_preference(pref),
         }
     }
 }
@@ -98,8 +98,12 @@ impl<R: ObjectReference + HasStoragePreference> Object<R> for Node<R> {
                 serialize_into(writer, internal)
                     .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
             },
-            NVMLeaf(ref leaf) => unreachable!("TODO: Karim..."),
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMLeaf(ref leaf) => PackedMap::pack_(leaf, writer),
+            NVMInternal(ref internal) => {
+                writer.write_all(&[0xFFu8, 0xFF, 0xFF, 0xFF] as &[u8])?;
+                serialize_into(writer, internal)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+            }
         }
     }
 
@@ -133,11 +137,25 @@ impl<R: ObjectReference + HasStoragePreference> Object<R> for Node<R> {
     where
         F: FnMut(&mut R) -> Result<(), E>,
     {
-        if let Some(iter) = self.child_pointer_iter_mut() {
-            for np in iter {
-                f(np)?;
-            }
+
+        match &self.0 {
+            Internal(_) => {
+                if let Some(iter) = self.child_pointer_iter_mut() {
+                    for np in iter {
+                        f(np)?;
+                    }
+                }
+            },
+            NVMInternal(_) => {
+                if let Some(iter) = self.nvm_child_pointer_iter_mut() {
+                    for np in iter {
+                        f(np)?;
+                    }
+                }
+            },
+            default => (),
         }
+        
         Ok(())
     }
 }
@@ -149,7 +167,7 @@ impl<N: StaticSize> Size for Node<N> {
             Leaf(ref leaf) => leaf.size(),
             Internal(ref internal) => 4 + internal.size(),
             NVMLeaf(ref leaf) => leaf.size(),
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref internal) => 4 + internal.size(),
         }
     }
 
@@ -159,7 +177,7 @@ impl<N: StaticSize> Size for Node<N> {
             Leaf(ref leaf) => leaf.actual_size(),
             Internal(ref internal) => internal.actual_size().map(|size| 4 + size),
             NVMLeaf(ref leaf) => leaf.actual_size(),
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref internal) => internal.actual_size().map(|size| 4 + size),
         }
     }
 }
@@ -170,7 +188,7 @@ impl<N: StaticSize + HasStoragePreference> Node<N> {
             Leaf(_) | PackedLeaf(_) => None,
             Internal(ref mut internal) => internal.try_walk(key),
             NVMLeaf(_) => None,
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref mut internal) => internal.try_walk(key),
         }
     }
 
@@ -183,7 +201,11 @@ impl<N: StaticSize + HasStoragePreference> Node<N> {
                 MIN_FANOUT,
             ),
             NVMLeaf(_) => None,
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref mut internal) => internal.try_find_flush_candidate(
+                MIN_FLUSH_SIZE,
+                MAX_INTERNAL_NODE_SIZE,
+                MIN_FANOUT,
+            )
         }
     }
 
@@ -193,7 +215,7 @@ impl<N: StaticSize + HasStoragePreference> Node<N> {
             Leaf(ref leaf) => leaf.size() > MAX_LEAF_NODE_SIZE,
             Internal(ref internal) => internal.size() > MAX_INTERNAL_NODE_SIZE,
             NVMLeaf(ref leaf) => leaf.size() > MAX_LEAF_NODE_SIZE,
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref internal) => internal.size() > MAX_INTERNAL_NODE_SIZE,
         }
     }
 }
@@ -205,7 +227,7 @@ impl<N: HasStoragePreference + StaticSize> Node<N> {
             Leaf(_) => "leaf",
             Internal(_) => "internal",
             NVMLeaf(_) => "nvm_leaf",
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref internal) => "nvm_internal",
         }
     }
     pub(super) fn fanout(&self) -> Option<usize> {
@@ -213,7 +235,7 @@ impl<N: HasStoragePreference + StaticSize> Node<N> {
             Leaf(_) | PackedLeaf(_) => None,
             Internal(ref internal) => Some(internal.fanout()),
             NVMLeaf(_) => None,
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref internal) => Some(internal.fanout()),
         }
     }
 
@@ -243,7 +265,7 @@ impl<N: HasStoragePreference + StaticSize> Node<N> {
             Leaf(_) | PackedLeaf(_) => false,
             Internal(ref internal) => internal.fanout() < MIN_FANOUT,
             NVMLeaf(_) => false,
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref internal) => internal.fanout() < MIN_FANOUT,
         }
     }
 
@@ -253,7 +275,7 @@ impl<N: HasStoragePreference + StaticSize> Node<N> {
             Leaf(ref leaf) => leaf.size() < MIN_LEAF_NODE_SIZE,
             Internal(_) => false,
             NVMLeaf(ref leaf) => leaf.size() < MIN_LEAF_NODE_SIZE,
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(_) => false,
         }
     }
 
@@ -263,7 +285,7 @@ impl<N: HasStoragePreference + StaticSize> Node<N> {
             Leaf(ref leaf) => leaf.size() > MAX_LEAF_NODE_SIZE,
             Internal(_) => false,
             NVMLeaf(ref leaf) => leaf.size() > MAX_LEAF_NODE_SIZE,
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(_) => false,
         }
     }
 
@@ -272,7 +294,7 @@ impl<N: HasStoragePreference + StaticSize> Node<N> {
             Leaf(_) | PackedLeaf(_) => true,
             Internal(_) => false,
             NVMLeaf(_) => true,
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(_) => false,
         }
     }
 
@@ -288,7 +310,7 @@ impl<N: HasStoragePreference + StaticSize> Node<N> {
             Leaf(_) | PackedLeaf(_) => 0,
             Internal(ref internal) => internal.level(),
             NVMLeaf(_) => 0,
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref internal) => internal.level(),
         }
     }
 
@@ -297,7 +319,7 @@ impl<N: HasStoragePreference + StaticSize> Node<N> {
             Leaf(_) | PackedLeaf(_) => false,
             Internal(ref internal) => internal.fanout() == 1,
             NVMLeaf(_) => false,
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref internal) => internal.fanout() == 1,
         }
     }
 }
@@ -327,21 +349,41 @@ impl<N: ObjectReference + StaticSize + HasStoragePreference> Node<N> {
                     leaf.split(MIN_LEAF_NODE_SIZE, MAX_LEAF_NODE_SIZE);
                 (Node(NVMLeaf(right_sibling)), pivot_key, 0)
             }
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref mut internal) => {
+                let (right_sibling, pivot_key, _, _pk) = internal.split();
+                (Node(NVMInternal(right_sibling)), pivot_key, internal.level())
+            },
         };
         debug!("Root split pivot key: {:?}", pivot_key);
-        *self = Node(Internal(InternalNode::new(
-            ChildBuffer::new(allocate_obj(
-                left_sibling,
-                LocalPivotKey::LeftOuter(pivot_key.clone()),
-            )),
-            ChildBuffer::new(allocate_obj(
-                right_sibling,
-                LocalPivotKey::Right(pivot_key.clone()),
-            )),
-            pivot_key,
-            cur_level + 1,
-        )));
+        *self = match left_sibling.0 {
+            PackedLeaf(_) | Leaf(_) | Internal(_) => 
+                Node(Internal(InternalNode::new(
+                    ChildBuffer::new(allocate_obj(
+                        left_sibling,
+                        LocalPivotKey::LeftOuter(pivot_key.clone()),
+                    )),
+                    ChildBuffer::new(allocate_obj(
+                        right_sibling,
+                        LocalPivotKey::Right(pivot_key.clone()),
+                    )),
+                    pivot_key,
+                    cur_level + 1,
+                ))),
+            NVMLeaf(_) | NVMInternal(_) => 
+                Node(NVMInternal(NVMInternalNode::new(
+                    ChildBuffer::new(allocate_obj(
+                        left_sibling,
+                        LocalPivotKey::LeftOuter(pivot_key.clone()),
+                    )),
+                    ChildBuffer::new(allocate_obj(
+                        right_sibling,
+                        LocalPivotKey::Right(pivot_key.clone()),
+                    )),
+                    pivot_key,
+                    cur_level + 1,
+                )))
+        };
+
         let size_after = self.size();
         size_after as isize - size_before as isize
     }
@@ -392,7 +434,13 @@ impl<N: HasStoragePreference> Node<N> {
                 GetResult::NextNode(child_np)
             },
             NVMLeaf(ref leaf) => GetResult::Data(leaf.get_with_info(key)),
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref internal) => {
+                let (child_np, msg) = internal.get(key);
+                if let Some(msg) = msg {
+                    msgs.push(msg);
+                }
+                GetResult::NextNode(child_np)
+            },
         }
     }
 
@@ -424,7 +472,18 @@ impl<N: HasStoragePreference> Node<N> {
             NVMLeaf(ref leaf) => GetRangeResult::Data(Box::new(
                 leaf.entries().iter().map(|(k, v)| (&k[..], v.clone())),
             )),
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref internal) => {
+                let prefetch_option = if internal.level() == 1 {
+                    internal.get_next_node(key)
+                } else {
+                    None
+                };
+                let np = internal.get_range(key, left_pivot_key, right_pivot_key, all_msgs);
+                GetRangeResult::NextNode {
+                    prefetch_option,
+                    np,
+                }
+            },
         }
     }
 
@@ -436,7 +495,7 @@ impl<N: HasStoragePreference> Node<N> {
             PackedLeaf(_) | Leaf(_) => None,
             Internal(ref internal) => Some(internal.pivot_get(pk)),
             NVMLeaf(_) => None,
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref internal) => Some(internal.pivot_get(pk)),
         }
     }
 
@@ -448,7 +507,7 @@ impl<N: HasStoragePreference> Node<N> {
             PackedLeaf(_) | Leaf(_) => None,
             Internal(ref mut internal) => Some(internal.pivot_get_mut(pk)),
             NVMLeaf(_) => None,
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref mut internal) => Some(internal.pivot_get_mut(pk)),
         }
     }
 }
@@ -473,7 +532,7 @@ impl<N: HasStoragePreference + StaticSize> Node<N> {
                 Leaf(ref mut leaf) => leaf.insert(key, keyinfo, msg, msg_action),
                 Internal(ref mut internal) => internal.insert(key, keyinfo, msg, msg_action),
                 NVMLeaf(ref mut leaf) => leaf.insert(key, keyinfo, msg, msg_action),
-                NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+                NVMInternal(ref mut internal) => internal.insert(key, keyinfo, msg, msg_action),
             })
     }
 
@@ -489,7 +548,7 @@ impl<N: HasStoragePreference + StaticSize> Node<N> {
                 Leaf(ref mut leaf) => leaf.insert_msg_buffer(msg_buffer, msg_action),
                 Internal(ref mut internal) => internal.insert_msg_buffer(msg_buffer, msg_action),
                 NVMLeaf(ref mut leaf) => leaf.insert_msg_buffer(msg_buffer, msg_action),
-                NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+                NVMInternal(ref mut internal) => internal.insert_msg_buffer(msg_buffer, msg_action),
             })
     }
 
@@ -512,7 +571,9 @@ impl<N: HasStoragePreference + StaticSize> Node<N> {
                 ApplyResult::NextNode(internal.apply_with_info(key, pref))
             },
             NVMLeaf(ref mut leaf) => ApplyResult::Leaf(leaf.apply(key, pref)),
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref mut internal) => {
+                ApplyResult::NextNode(internal.apply_with_info(key, pref))
+            },
         }
     }
 }
@@ -527,7 +588,20 @@ impl<N: HasStoragePreference> Node<N> {
                     .map(|child| child.node_pointer.get_mut()),
             ),
             NVMLeaf(_) => None,
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref mut internal) => None,
+        }
+    }
+
+    pub(super) fn nvm_child_pointer_iter_mut(&mut self) -> Option<impl Iterator<Item = &mut N> + '_> {
+        match self.0 {
+            Leaf(_) | PackedLeaf(_) => None,
+            Internal(ref mut internal) => None,
+            NVMLeaf(_) => None,
+            NVMInternal(ref mut internal) => Some(
+                internal
+                    .iter_mut()
+                    .map(|child| child.node_pointer.get_mut()),
+            ),
         }
     }
 
@@ -545,7 +619,7 @@ impl<N: HasStoragePreference> Node<N> {
             Leaf(_) | PackedLeaf(_) => None,
             Internal(ref mut internal) => Some(internal.drain_children()),
             NVMLeaf(_) => None,
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref mut internal) => unreachable!("TODO: Karim..."),
         }
     }
 }
@@ -576,7 +650,17 @@ impl<N: ObjectReference + StaticSize + HasStoragePreference> Node<N> {
                     leaf.split(MIN_LEAF_NODE_SIZE, MAX_LEAF_NODE_SIZE);
                 (Node(NVMLeaf(node)), pivot_key, size_delta, pk)
             }
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            NVMInternal(ref mut internal) => {
+                debug_assert!(
+                    internal.fanout() >= 2 * MIN_FANOUT,
+                    "internal split failed due to low fanout: {}, size: {}, actual_size: {:?}",
+                    internal.fanout(),
+                    internal.size(),
+                    internal.actual_size()
+                );
+                let (node, pivot_key, size_delta, pk) = internal.split();
+                (Node(NVMInternal(node)), pivot_key, size_delta, pk)
+            },
         }
     }
 
@@ -587,6 +671,9 @@ impl<N: ObjectReference + StaticSize + HasStoragePreference> Node<N> {
             (&mut Leaf(ref mut left), &mut Leaf(ref mut right)) => left.merge(right),
             (&mut NVMLeaf(ref mut left), &mut NVMLeaf(ref mut right)) => left.merge(right),
             (&mut Internal(ref mut left), &mut Internal(ref mut right)) => {
+                left.merge(right, pivot_key)
+            },
+            (&mut NVMInternal(ref mut left), &mut NVMInternal(ref mut right)) => {
                 left.merge(right, pivot_key)
             }
             _ => unreachable!(),
@@ -747,8 +834,43 @@ impl<N: HasStoragePreference + ObjectReference> Node<N> {
                     },
                 }
             },
-            NVMLeaf(ref leaf) => unreachable!("TODO: Karim..."),
-            NVMInternal(ref internal) => unreachable!("TODO: Karim..."),
+            Inner::NVMLeaf(leaf) => NodeInfo::Leaf {
+                storage: self.correct_preference(),
+                system_storage: self.system_storage_preference(),
+                level: self.level(),
+                entry_count: leaf.entries().len(),
+            },
+            Inner::NVMInternal(int) => NodeInfo::Internal {
+                storage: self.correct_preference(),
+                system_storage: self.system_storage_preference(),
+                level: self.level(),
+                children: {
+                    int.iter_with_bounds()
+                        .map(|(maybe_left, child_buf, maybe_right)| {
+                            let (child, storage_preference, pivot_key) = {
+                                let mut np = child_buf.node_pointer.write();
+                                let pivot_key = np.index().clone();
+                                let storage_preference = np.correct_preference();
+                                let child = dml.get(&mut np).unwrap();
+                                (child, storage_preference, pivot_key)
+                            };
+
+                            let node_info = child.node_info(dml);
+                            drop(child);
+
+                            dml.evict().unwrap();
+
+                            ChildInfo {
+                                from: maybe_left.map(|cow| ByteString(cow.to_vec())),
+                                to: maybe_right.map(|cow| ByteString(cow.to_vec())),
+                                storage: storage_preference,
+                                pivot_key,
+                                child: node_info,
+                            }
+                        })
+                        .collect()
+                },
+            },
         }
     }
 }

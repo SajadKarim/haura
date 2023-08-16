@@ -17,12 +17,13 @@ use bincode::serialized_size;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::{borrow::Borrow, collections::BTreeMap, mem::replace};
+use std::any::Any;
 
 pub trait TakeChildBufferTrait<T> : Size {
-    fn get_childern(&self) -> &Vec<T>; 
-    fn get_child<N>(&self, idx: usize) -> &mut RwLock<N>;
-    fn get_pivot(&self) -> &Vec<CowBytes>; 
+    fn get_childern(&mut self) -> &mut Vec<T>; 
+    fn get_pivot(&mut self) -> &mut Vec<CowBytes>; 
     fn add_to_entries_size(&mut self, val: usize); 
+    fn as_any(&self) -> &dyn Any;
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -38,7 +39,7 @@ pub(super) struct InternalNode<T> {
     children: Vec<T>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct NVMInternalNode<T> {
     meta_data: NVMInternalNodeMetaData,
@@ -59,54 +60,54 @@ pub(super) struct NVMInternalNodeMetaData {
     pub(super) pivot: Vec<CowBytes>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct NVMInternalNodeData<T> {
     children: Vec<T>,
 }
 
 
-impl<T: Size> TakeChildBufferTrait<T> for InternalNode<T> {
-    fn get_childern(&self) -> &Vec<T>
+impl<T: Size + 'static> TakeChildBufferTrait<T> for InternalNode<T> {
+    fn get_childern(&mut self) -> &mut Vec<T>
     {
-        &self.children
+        &mut self.children
     }
 
-    fn get_child<N>(&self, idx: usize) -> &mut RwLock<N>
+    fn get_pivot(&mut self) -> &mut Vec<CowBytes>
     {
-        &mut self.children[idx];
-    }
-    
-    fn get_pivot(&self) -> &Vec<CowBytes>
-    {
-        &self.pivot
+        &mut self.pivot
     }
 
     fn add_to_entries_size(&mut self, val: usize)
     {
         self.entries_size += val;
     }
+
+    fn as_any(&self) -> &dyn Any 
+    {
+        self
+    }
 }
 
-impl<T: Size> TakeChildBufferTrait<T> for NVMInternalNode<T> {
-    fn get_childern(&self) -> &Vec<T>
+impl<T: Size + 'static> TakeChildBufferTrait<T> for NVMInternalNode<T> {
+    fn get_childern(&mut self) -> &mut Vec<T>
     {
-        &self.data.children
+        &mut self.data.children
     }
 
-    fn get_child<N>(&self, idx: usize) -> &mut RwLock<N>
+    fn get_pivot(&mut self) -> &mut Vec<CowBytes>
     {
-        &mut self.data.children[idx];
-    }
-
-    fn get_pivot(&self) -> &Vec<CowBytes>
-    {
-        &self.meta_data.pivot
+        &mut self.meta_data.pivot
     }
 
     fn add_to_entries_size(&mut self, val: usize)
     {
         self.meta_data.entries_size += val;
+    }
+
+    fn as_any(&self) -> &dyn Any 
+    {
+        self
     }
 }
 
@@ -1110,10 +1111,11 @@ impl<'a, N: StaticSize + HasStoragePreference> TakeChildBuffer<'a, ChildBuffer<N
 
 impl<'a, T> TakeChildBuffer<'a, T>
 where
-    dyn TakeChildBufferTrait<T>: Size,
+    dyn TakeChildBufferTrait<T> + 'a: Size,
 {
     pub(super) fn size(&self) -> usize {
-        Size::size(&*self.node)
+        //Size::size(&*self.node)
+        0
     }
 
     pub(super) fn prepare_merge(&mut self) -> PrepareMergeChild<T> {
