@@ -18,6 +18,13 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::{borrow::Borrow, collections::BTreeMap, mem::replace};
 
+pub trait TakeChildBufferTrait<T> : Size {
+    fn get_childern(&self) -> &Vec<T>; 
+    fn get_child<N>(&self, idx: usize) -> &mut RwLock<N>;
+    fn get_pivot(&self) -> &Vec<CowBytes>; 
+    fn add_to_entries_size(&mut self, val: usize); 
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct InternalNode<T> {
@@ -30,6 +37,79 @@ pub(super) struct InternalNode<T> {
     pub(super) pivot: Vec<CowBytes>,
     children: Vec<T>,
 }
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(super) struct NVMInternalNode<T> {
+    meta_data: NVMInternalNodeMetaData,
+    data: NVMInternalNodeData<T>,
+    data_offset: u32,
+}
+
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(super) struct NVMInternalNodeMetaData {
+    level: u32,
+    entries_size: usize,
+    #[serde(skip)]
+    system_storage_preference: AtomicSystemStoragePreference,
+    #[serde(skip)]
+    pref: AtomicStoragePreference,
+    pub(super) pivot: Vec<CowBytes>,
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(super) struct NVMInternalNodeData<T> {
+    children: Vec<T>,
+}
+
+
+impl<T: Size> TakeChildBufferTrait<T> for InternalNode<T> {
+    fn get_childern(&self) -> &Vec<T>
+    {
+        &self.children
+    }
+
+    fn get_child<N>(&self, idx: usize) -> &mut RwLock<N>
+    {
+        &mut self.children[idx];
+    }
+    
+    fn get_pivot(&self) -> &Vec<CowBytes>
+    {
+        &self.pivot
+    }
+
+    fn add_to_entries_size(&mut self, val: usize)
+    {
+        self.entries_size += val;
+    }
+}
+
+impl<T: Size> TakeChildBufferTrait<T> for NVMInternalNode<T> {
+    fn get_childern(&self) -> &Vec<T>
+    {
+        &self.data.children
+    }
+
+    fn get_child<N>(&self, idx: usize) -> &mut RwLock<N>
+    {
+        &mut self.data.children[idx];
+    }
+
+    fn get_pivot(&self) -> &Vec<CowBytes>
+    {
+        &self.meta_data.pivot
+    }
+
+    fn add_to_entries_size(&mut self, val: usize)
+    {
+        self.meta_data.entries_size += val;
+    }
+}
+
 
 // @tilpner:
 // Previously, this literal was magically spread across the code below, and I've (apparently
@@ -100,6 +180,29 @@ impl<T: Size> Size for InternalNode<T> {
     }
 }
 
+impl<T: Size> Size for NVMInternalNode<T> {
+    fn size(&self) -> usize {
+        internal_node_base_size() + self.meta_data.entries_size
+    }
+
+    fn actual_size(&self) -> Option<usize> {
+        Some(
+            internal_node_base_size()
+                + self.meta_data.pivot.iter().map(Size::size).sum::<usize>()
+                + self
+                    .data
+                    .children
+                    .iter()
+                    .map(|child| {
+                        child
+                            .checked_size()
+                            .expect("Child doesn't impl actual_size")
+                    })
+                    .sum::<usize>(),
+        )
+    }
+}
+
 impl<T: HasStoragePreference> HasStoragePreference for InternalNode<T> {
     fn current_preference(&self) -> Option<StoragePreference> {
         self.pref
@@ -129,6 +232,38 @@ impl<T: HasStoragePreference> HasStoragePreference for InternalNode<T> {
 
     fn set_system_storage_preference(&mut self, pref: StoragePreference) {
         self.system_storage_preference.set(pref);
+    }
+}
+
+impl<T: HasStoragePreference> HasStoragePreference for NVMInternalNode<T> {
+    fn current_preference(&self) -> Option<StoragePreference> {
+        self.meta_data.pref
+            .as_option()
+            .map(|pref| self.meta_data.system_storage_preference.weak_bound(&pref))
+    }
+
+    fn recalculate(&self) -> StoragePreference {
+        let mut pref = StoragePreference::NONE;
+
+        for child in &self.data.children {
+            pref.upgrade(child.correct_preference())
+        }
+
+        self.meta_data.pref.set(pref);
+        pref
+    }
+
+    fn correct_preference(&self) -> StoragePreference {
+        self.meta_data.system_storage_preference
+            .weak_bound(&self.recalculate())
+    }
+
+    fn system_storage_preference(&self) -> StoragePreference {
+        self.meta_data.system_storage_preference.borrow().into()
+    }
+
+    fn set_system_storage_preference(&mut self, pref: StoragePreference) {
+        self.meta_data.system_storage_preference.set(pref);
     }
 }
 
@@ -190,6 +325,89 @@ impl<T> InternalNode<T> {
 
             (maybe_left, child, maybe_right)
         })
+    }
+}
+
+impl<T> NVMInternalNode<T> {
+    pub fn new(left_child: T, right_child: T, pivot_key: CowBytes, level: u32) -> Self
+    where
+        T: Size,
+    {
+        NVMInternalNode {
+            meta_data: NVMInternalNodeMetaData::new(left_child.size() + right_child.size() + pivot_key.size(), pivot_key, level),
+            data: NVMInternalNodeData::<T>::new(left_child, right_child),
+            data_offset: 0
+        }
+    }
+
+    /// Returns the number of children.
+    pub fn fanout(&self) -> usize {
+        self.data.children.len()
+    }
+
+    /// Returns the level of this node.
+    pub fn level(&self) -> u32 {
+        self.meta_data.level
+    }
+
+    /// Returns the index of the child buffer
+    /// corresponding to the given `key`.
+    fn idx(&self, key: &[u8]) -> usize {
+        match self
+            .meta_data
+            .pivot
+            .binary_search_by(|pivot_key| pivot_key.as_ref().cmp(key))
+        {
+            Ok(idx) | Err(idx) => idx,
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
+        self.data.children.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> + '_ {
+        self.data.children.iter_mut()
+    }
+
+    pub fn iter_with_bounds(
+        &self,
+    ) -> impl Iterator<Item = (Option<&CowBytes>, &T, Option<&CowBytes>)> + '_ {
+        self.data.children.iter().enumerate().map(move |(idx, child)| {
+            let maybe_left = if idx == 0 {
+                None
+            } else {
+                self.meta_data.pivot.get(idx - 1)
+            };
+
+            let maybe_right = self.meta_data.pivot.get(idx);
+
+            (maybe_left, child, maybe_right)
+        })
+    }
+}
+
+impl NVMInternalNodeMetaData {
+    pub fn new(entries_size: usize, pivot_key: CowBytes, level: u32) -> Self
+    {
+        NVMInternalNodeMetaData {
+            level,
+            entries_size: entries_size,
+            pivot: vec![pivot_key],
+            system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
+            pref: AtomicStoragePreference::unknown(),
+        }
+    }
+}
+
+impl<T> NVMInternalNodeData<T> {
+    pub fn new(left_child: T, right_child: T) -> Self
+    where
+        T: Size,
+    {
+        NVMInternalNodeData {
+            children: vec![left_child, right_child]
+        }
     }
 }
 
@@ -351,6 +569,164 @@ impl<N> InternalNode<ChildBuffer<N>> {
     }
 }
 
+impl<N> NVMInternalNode<ChildBuffer<N>> {
+    pub fn get(&self, key: &[u8]) -> (&RwLock<N>, Option<(KeyInfo, SlicedCowBytes)>) {
+        let child = &self.data.children[self.idx(key)];
+
+        let msg = child.get(key).cloned();
+        (&child.node_pointer, msg)
+    }
+
+    pub fn pivot_get(&self, pk: &PivotKey) -> PivotGetResult<N> {
+        // Exact pivot matches are required only
+        debug_assert!(!pk.is_root());
+        let pivot = pk.bytes().unwrap();
+        self.meta_data.pivot
+            .iter()
+            .enumerate()
+            .find(|(_idx, p)| **p == pivot)
+            .map_or_else(
+                || {
+                    // Continue the search to the next level
+                    let child = &self.data.children[self.idx(&pivot)];
+                    PivotGetResult::NextNode(&child.node_pointer)
+                },
+                |(idx, _)| {
+                    // Fetch the correct child pointer
+                    let child;
+                    if pk.is_left() {
+                        child = &self.data.children[idx];
+                    } else {
+                        child = &self.data.children[idx + 1];
+                    }
+                    PivotGetResult::Target(Some(&child.node_pointer))
+                },
+            )
+    }
+
+    pub fn pivot_get_mut(&mut self, pk: &PivotKey) -> PivotGetMutResult<N> {
+        // Exact pivot matches are required only
+        debug_assert!(!pk.is_root());
+        let pivot = pk.bytes().unwrap();
+        let (id, is_target) = self
+            .meta_data
+            .pivot
+            .iter()
+            .enumerate()
+            .find(|(_idx, p)| **p == pivot)
+            .map_or_else(
+                || {
+                    // Continue the search to the next level
+                    (self.idx(&pivot), false)
+                },
+                |(idx, _)| {
+                    // Fetch the correct child pointer
+                    (idx, true)
+                },
+            );
+        match (is_target, pk.is_left()) {
+            (true, true) => {
+                PivotGetMutResult::Target(Some(self.data.children[id].node_pointer.get_mut()))
+            }
+            (true, false) => {
+                PivotGetMutResult::Target(Some(self.data.children[id + 1].node_pointer.get_mut()))
+            }
+            (false, _) => PivotGetMutResult::NextNode(self.data.children[id].node_pointer.get_mut()),
+        }
+    }
+
+    pub fn apply_with_info(&mut self, key: &[u8], pref: StoragePreference) -> &mut N {
+        let idx = self.idx(key);
+        let child = &mut self.data.children[idx];
+
+        child.apply_with_info(key, pref);
+        child.node_pointer.get_mut()
+    }
+
+    pub fn get_range(
+        &self,
+        key: &[u8],
+        left_pivot_key: &mut Option<CowBytes>,
+        right_pivot_key: &mut Option<CowBytes>,
+        all_msgs: &mut BTreeMap<CowBytes, Vec<(KeyInfo, SlicedCowBytes)>>,
+    ) -> &RwLock<N> {
+        let idx = self.idx(key);
+        if idx > 0 {
+            *left_pivot_key = Some(self.meta_data.pivot[idx - 1].clone());
+        }
+        if idx < self.meta_data.pivot.len() {
+            *right_pivot_key = Some(self.meta_data.pivot[idx].clone());
+        }
+        let child = &self.data.children[idx];
+        for (key, msg) in child.get_all_messages() {
+            all_msgs
+                .entry(key.clone())
+                .or_insert_with(Vec::new)
+                .push(msg.clone());
+        }
+
+        &child.node_pointer
+    }
+
+    pub fn get_next_node(&self, key: &[u8]) -> Option<&RwLock<N>> {
+        let idx = self.idx(key) + 1;
+        self.data.children.get(idx).map(|child| &child.node_pointer)
+    }
+
+    pub fn insert<Q, M>(
+        &mut self,
+        key: Q,
+        keyinfo: KeyInfo,
+        msg: SlicedCowBytes,
+        msg_action: M,
+    ) -> isize
+    where
+        Q: Borrow<[u8]> + Into<CowBytes>,
+        M: MessageAction,
+    {
+        self.meta_data.pref.invalidate();
+        let idx = self.idx(key.borrow());
+        let added_size = self.data.children[idx].insert(key, keyinfo, msg, msg_action);
+
+        if added_size > 0 {
+            self.meta_data.entries_size += added_size as usize;
+        } else {
+            self.meta_data.entries_size -= -added_size as usize;
+        }
+        added_size
+    }
+    pub fn insert_msg_buffer<I, M>(&mut self, iter: I, msg_action: M) -> isize
+    where
+        I: IntoIterator<Item = (CowBytes, (KeyInfo, SlicedCowBytes))>,
+        M: MessageAction,
+    {
+        self.meta_data.pref.invalidate();
+        let mut added_size = 0;
+        let mut buf_storage_pref = StoragePreference::NONE;
+
+        for (k, (keyinfo, v)) in iter.into_iter() {
+            let idx = self.idx(&k);
+            buf_storage_pref.upgrade(keyinfo.storage_preference);
+            added_size += self.data.children[idx].insert(k, keyinfo, v, &msg_action);
+        }
+
+        if added_size > 0 {
+            self.meta_data.entries_size += added_size as usize;
+        } else {
+            self.meta_data.entries_size -= -added_size as usize;
+        }
+        added_size
+    }
+
+    pub fn drain_children(&mut self) -> impl Iterator<Item = N> + '_ {
+        self.meta_data.pref.invalidate();
+        self.meta_data.entries_size = 0;
+        self.data.children
+            .drain(..)
+            .map(|child| child.node_pointer.into_inner())
+    }
+}
+
 impl<N: StaticSize + HasStoragePreference> InternalNode<ChildBuffer<N>> {
     pub fn range_delete(
         &mut self,
@@ -397,6 +773,61 @@ impl<N: StaticSize + HasStoragePreference> InternalNode<ChildBuffer<N>> {
             self.entries_size -= child.range_delete(start, end);
         }
         let size_delta = size_before - self.entries_size;
+
+        (
+            size_delta,
+            left_child.node_pointer.get_mut(),
+            right_child.map(|child| child.node_pointer.get_mut()),
+        )
+    }
+}
+
+impl<N: StaticSize + HasStoragePreference> NVMInternalNode<ChildBuffer<N>> {
+    pub fn range_delete(
+        &mut self,
+        start: &[u8],
+        end: Option<&[u8]>,
+        dead: &mut Vec<N>,
+    ) -> (usize, &mut N, Option<&mut N>) {
+        self.meta_data.pref.invalidate();
+        let size_before = self.meta_data.entries_size;
+        let start_idx = self.idx(start);
+        let end_idx = end.map_or(self.data.children.len() - 1, |i| self.idx(i));
+        if start_idx == end_idx {
+            let size_delta = self.data.children[start_idx].range_delete(start, end);
+            return (
+                size_delta,
+                self.data.children[start_idx].node_pointer.get_mut(),
+                None,
+            );
+        }
+        // Skip children that may overlap.
+        let dead_start_idx = start_idx + 1;
+        let dead_end_idx = end_idx - end.is_some() as usize;
+        if dead_start_idx <= dead_end_idx {
+            for pivot_key in self.meta_data.pivot.drain(dead_start_idx..dead_end_idx) {
+                self.meta_data.entries_size -= pivot_key.size();
+            }
+            let entries_size = &mut self.meta_data.entries_size;
+            dead.extend(
+                self.data.children
+                    .drain(dead_start_idx..=dead_end_idx)
+                    .map(|child| {
+                        *entries_size -= child.size();
+                        child.node_pointer.into_inner()
+                    }),
+            );
+        }
+
+        let (left_child, mut right_child) = {
+            let (left, right) = self.data.children.split_at_mut(start_idx + 1);
+            (&mut left[start_idx], end.map(move |_| &mut right[0]))
+        };
+        self.meta_data.entries_size -= left_child.range_delete(start, None);
+        if let Some(ref mut child) = right_child {
+            self.meta_data.entries_size -= child.range_delete(start, end);
+        }
+        let size_delta = size_before - self.meta_data.entries_size;
 
         (
             size_delta,
@@ -476,6 +907,81 @@ impl<N: ObjectReference> InternalNode<ChildBuffer<N>> {
     }
 }
 
+impl<N: ObjectReference> NVMInternalNode<ChildBuffer<N>> {
+    pub fn split(&mut self) -> (Self, CowBytes, isize, LocalPivotKey) {
+        self.meta_data.pref.invalidate();
+        let split_off_idx = self.fanout() / 2;
+        let pivot = self.meta_data.pivot.split_off(split_off_idx);
+        let pivot_key = self.meta_data.pivot.pop().unwrap();
+        let mut children = self.data.children.split_off(split_off_idx);
+
+        if let (Some(new_left_outer), Some(new_left_pivot)) = (children.first_mut(), pivot.first())
+        {
+            new_left_outer.update_pivot_key(LocalPivotKey::LeftOuter(new_left_pivot.clone()))
+        }
+
+        let entries_size = pivot.iter().map(Size::size).sum::<usize>()
+            + children.iter_mut().map(SizeMut::size).sum::<usize>();
+
+        let size_delta = entries_size + pivot_key.size();
+        self.meta_data.entries_size -= size_delta;
+
+        let right_sibling = NVMInternalNode {
+            meta_data : NVMInternalNodeMetaData { 
+                level: self.meta_data.level,
+                entries_size: entries_size,
+                pivot: pivot,
+                // Copy the system storage preference of the other node as we cannot
+                // be sure which key was targeted by recorded accesses.
+                system_storage_preference: self.meta_data.system_storage_preference.clone(),
+                pref: AtomicStoragePreference::unknown()
+            },
+            data: NVMInternalNodeData {
+                children: children
+            },
+            data_offset: self.data_offset
+        };
+        (
+            right_sibling,
+            pivot_key.clone(),
+            -(size_delta as isize),
+            LocalPivotKey::Right(pivot_key),
+        )
+    }
+
+    pub fn merge(&mut self, right_sibling: &mut Self, old_pivot_key: CowBytes) -> isize {
+        self.meta_data.pref.invalidate();
+        let size_delta = right_sibling.meta_data.entries_size + old_pivot_key.size();
+        self.meta_data.entries_size += size_delta;
+        self.meta_data.pivot.push(old_pivot_key);
+        self.meta_data.pivot.append(&mut right_sibling.meta_data.pivot);
+        self.data.children.append(&mut right_sibling.data.children);
+
+        size_delta as isize
+    }
+
+    /// Translate any object ref in a `ChildBuffer` from `Incomplete` to `Unmodified` state.
+    pub fn complete_object_refs(mut self, d_id: DatasetId) -> Self {
+        // TODO:
+        let first_pk = match self.meta_data.pivot.first() {
+            Some(p) => PivotKey::LeftOuter(p.clone(), d_id),
+            None => unreachable!(
+                "The store contains an empty InternalNode, this should never be the case."
+            ),
+        };
+        for (id, pk) in [first_pk]
+            .into_iter()
+            .chain(self.meta_data.pivot.iter().map(|p| PivotKey::Right(p.clone(), d_id)))
+            .enumerate()
+        {
+            // SAFETY: There must always be pivots + 1 many children, otherwise
+            // the state of the Internal Node is broken.
+            self.data.children[id].complete_object_ref(pk)
+        }
+        self
+    }
+}
+
 impl<N: HasStoragePreference> InternalNode<ChildBuffer<N>>
 where
     ChildBuffer<N>: Size,
@@ -525,8 +1031,57 @@ where
     }
 }
 
+impl<N: HasStoragePreference> NVMInternalNode<ChildBuffer<N>>
+where
+    ChildBuffer<N>: Size,
+{
+    pub fn try_walk(&mut self, key: &[u8]) -> Option<TakeChildBuffer<ChildBuffer<N>>> {
+        let child_idx = self.idx(key);
+        if self.data.children[child_idx].is_empty(key) {
+            Some(TakeChildBuffer {
+                node: self,
+                child_idx,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn try_find_flush_candidate(
+        &mut self,
+        min_flush_size: usize,
+        max_node_size: usize,
+        min_fanout: usize,
+    ) -> Option<TakeChildBuffer<ChildBuffer<N>>> {
+        let child_idx = {
+            let size = self.size();
+            let fanout = self.fanout();
+            let (child_idx, child) = self.data
+                .children
+                .iter()
+                .enumerate()
+                .max_by_key(|&(_, child)| child.buffer_size())
+                .unwrap();
+
+            debug!("Largest child's buffer size: {}", child.buffer_size());
+
+            if child.buffer_size() >= min_flush_size
+                && (size - child.buffer_size() <= max_node_size || fanout < 2 * min_fanout)
+            {
+                Some(child_idx)
+            } else {
+                None
+            }
+        };
+        child_idx.map(move |child_idx| TakeChildBuffer {
+            node: self,
+            child_idx,
+        })
+    }
+}
+
 pub(super) struct TakeChildBuffer<'a, T: 'a> {
-    node: &'a mut InternalNode<T>,
+    node: &'a mut dyn TakeChildBufferTrait<T>,
     child_idx: usize,
 }
 
@@ -541,11 +1096,11 @@ impl<'a, N: StaticSize + HasStoragePreference> TakeChildBuffer<'a, ChildBuffer<N
         // is added to self, the overall entries don't change, so this node doesn't need to be
         // invalidated
 
-        let sibling = self.node.children[self.child_idx].split_at(&pivot_key, sibling_np);
+        let sibling = self.node.get_childern()[self.child_idx].split_at(&pivot_key, sibling_np);
         let size_delta = sibling.size() + pivot_key.size();
-        self.node.children.insert(self.child_idx + 1, sibling);
-        self.node.pivot.insert(self.child_idx, pivot_key);
-        self.node.entries_size += size_delta;
+        self.node.get_childern().insert(self.child_idx + 1, sibling);
+        self.node.get_pivot().insert(self.child_idx, pivot_key);
+        self.node.add_to_entries_size(size_delta);
         if select_right {
             self.child_idx += 1;
         }
@@ -555,14 +1110,14 @@ impl<'a, N: StaticSize + HasStoragePreference> TakeChildBuffer<'a, ChildBuffer<N
 
 impl<'a, T> TakeChildBuffer<'a, T>
 where
-    InternalNode<T>: Size,
+    dyn TakeChildBufferTrait<T>: Size,
 {
     pub(super) fn size(&self) -> usize {
         Size::size(&*self.node)
     }
 
     pub(super) fn prepare_merge(&mut self) -> PrepareMergeChild<T> {
-        if self.child_idx + 1 < self.node.children.len() {
+        if self.child_idx + 1 < self.node.get_childern().len() {
             PrepareMergeChild {
                 node: self.node,
                 pivot_key_idx: self.child_idx,
@@ -579,14 +1134,14 @@ where
 }
 
 pub(super) struct PrepareMergeChild<'a, T: 'a> {
-    node: &'a mut InternalNode<T>,
+    node: &'a mut dyn TakeChildBufferTrait<T>,
     pivot_key_idx: usize,
     other_child_idx: usize,
 }
 
 impl<'a, N> PrepareMergeChild<'a, ChildBuffer<N>> {
     pub(super) fn sibling_node_pointer(&mut self) -> &mut RwLock<N> {
-        &mut self.node.children[self.other_child_idx].node_pointer
+        &mut self.node.get_childern()[self.other_child_idx].node_pointer
     }
     pub(super) fn is_right_sibling(&self) -> bool {
         self.pivot_key_idx != self.other_child_idx
@@ -601,13 +1156,13 @@ pub(super) struct MergeChildResult<NP> {
 
 impl<'a, N: Size + HasStoragePreference> PrepareMergeChild<'a, ChildBuffer<N>> {
     pub(super) fn merge_children(self) -> MergeChildResult<N> {
-        let mut right_sibling = self.node.children.remove(self.pivot_key_idx + 1);
-        let pivot_key = self.node.pivot.remove(self.pivot_key_idx);
+        let mut right_sibling = self.node.get_childern().remove(self.pivot_key_idx + 1);
+        let pivot_key = self.node.get_pivot().remove(self.pivot_key_idx);
         let size_delta =
             pivot_key.size() + ChildBuffer::<N>::static_size() + right_sibling.node_pointer.size();
-        self.node.entries_size -= size_delta;
+        self.node.add_to_entries_size(size_delta);
 
-        let left_sibling = &mut self.node.children[self.pivot_key_idx];
+        let left_sibling = &mut self.node.get_childern()[self.pivot_key_idx];
         left_sibling.append(&mut right_sibling);
         left_sibling
             .messages_preference
@@ -623,7 +1178,7 @@ impl<'a, N: Size + HasStoragePreference> PrepareMergeChild<'a, ChildBuffer<N>> {
 
 impl<'a, N: Size + HasStoragePreference> PrepareMergeChild<'a, ChildBuffer<N>> {
     fn get_children(&mut self) -> (&mut ChildBuffer<N>, &mut ChildBuffer<N>) {
-        let (left, right) = self.node.children[self.pivot_key_idx..].split_at_mut(1);
+        let (left, right) = self.node.get_childern()[self.pivot_key_idx..].split_at_mut(1);
         (&mut left[0], &mut right[0])
     }
 
@@ -635,7 +1190,7 @@ impl<'a, N: Size + HasStoragePreference> PrepareMergeChild<'a, ChildBuffer<N>> {
         }
 
         let mut size_delta = new_pivot_key.size() as isize;
-        let old_pivot_key = replace(&mut self.node.pivot[self.pivot_key_idx], new_pivot_key);
+        let old_pivot_key = replace(&mut self.node.get_pivot()[self.pivot_key_idx], new_pivot_key);
         size_delta -= old_pivot_key.size() as isize;
 
         size_delta
@@ -644,11 +1199,11 @@ impl<'a, N: Size + HasStoragePreference> PrepareMergeChild<'a, ChildBuffer<N>> {
 
 impl<'a, N: Size + HasStoragePreference> TakeChildBuffer<'a, ChildBuffer<N>> {
     pub fn node_pointer_mut(&mut self) -> &mut RwLock<N> {
-        &mut self.node.children[self.child_idx].node_pointer
+        &mut self.node.get_childern()[self.child_idx].node_pointer
     }
     pub fn take_buffer(&mut self) -> (BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)>, isize) {
-        let (buffer, size_delta) = self.node.children[self.child_idx].take();
-        self.node.entries_size -= size_delta;
+        let (buffer, size_delta) = self.node.get_childern()[self.child_idx].take();
+        self.node.add_to_entries_size(size_delta);
         (buffer, -(size_delta as isize))
     }
 }

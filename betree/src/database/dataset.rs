@@ -157,6 +157,7 @@ impl Database {
             DefaultMessageAction,
             Arc::clone(self.root_tree.dmu()),
             storage_preference,
+            true    //TODO: Karim...
         );
         let ptr = tree.sync()?;
 

@@ -9,6 +9,8 @@ use crate::{
 };
 use std::{borrow::Borrow, collections::BTreeMap, iter::FromIterator};
 
+use serde::{Deserialize, Serialize};
+
 /// A leaf node of the tree holds pairs of keys values which are plain data.
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq))]
@@ -19,6 +21,29 @@ pub(super) struct LeafNode {
     entries_size: usize,
     entries: BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)>,
 }
+
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(super) struct NVMLeafNode {
+    meta_data: NVMLeafNodeMetaData,
+    data: NVMLeafNodeData,
+}
+
+#[derive(Debug, Clone,  Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(super) struct NVMLeafNodeMetaData {
+    storage_preference: AtomicStoragePreference,
+    /// A storage preference assigned by the Migration Policy
+    system_storage_preference: AtomicSystemStoragePreference,
+    entries_size: usize,
+}
+
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(super) struct NVMLeafNodeData {
+    entries: BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)>,
+}
+
 
 /// Case-dependent outcome of a rebalance operation.
 #[derive(Debug)]
@@ -49,6 +74,24 @@ impl Size for LeafNode {
     }
 }
 
+impl Size for NVMLeafNode {
+    fn size(&self) -> usize {
+        packed::HEADER_FIXED_LEN + self.meta_data.entries_size
+    }
+
+    fn actual_size(&self) -> Option<usize> {
+        Some(
+            packed::HEADER_FIXED_LEN
+                + self.data
+                    .entries
+                    .iter()
+                    .map(|(key, (_keyinfo, value))| packed::ENTRY_LEN + key.len() + value.len())
+                    .sum::<usize>(),
+        )
+    }
+
+}
+
 impl HasStoragePreference for LeafNode {
     fn current_preference(&self) -> Option<StoragePreference> {
         self.storage_preference
@@ -73,6 +116,33 @@ impl HasStoragePreference for LeafNode {
 
     fn set_system_storage_preference(&mut self, pref: StoragePreference) {
         self.system_storage_preference.set(pref)
+    }
+}
+
+impl HasStoragePreference for NVMLeafNode {
+    fn current_preference(&self) -> Option<StoragePreference> {
+        self.meta_data.storage_preference
+            .as_option()
+            .map(|pref| self.meta_data.system_storage_preference.weak_bound(&pref))
+    }
+
+    fn recalculate(&self) -> StoragePreference {
+        let mut pref = StoragePreference::NONE;
+
+        for (keyinfo, _v) in self.data.entries.values() {
+            pref.upgrade(keyinfo.storage_preference);
+        }
+
+        self.meta_data.storage_preference.set(pref);
+        self.meta_data.system_storage_preference.weak_bound(&pref)
+    }
+
+    fn system_storage_preference(&self) -> StoragePreference {
+        self.meta_data.system_storage_preference.borrow().into()
+    }
+
+    fn set_system_storage_preference(&mut self, pref: StoragePreference) {
+        self.meta_data.system_storage_preference.set(pref)
     }
 }
 
@@ -123,6 +193,327 @@ impl<'a> FromIterator<(&'a [u8], (KeyInfo, SlicedCowBytes))> for LeafNode {
             system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
             entries_size,
             entries,
+        }
+    }
+}
+
+impl<'a> FromIterator<(&'a [u8], (KeyInfo, SlicedCowBytes))> for NVMLeafNode {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = (&'a [u8], (KeyInfo, SlicedCowBytes))>,
+    {
+        let mut storage_pref = StoragePreference::NONE;
+        let mut entries_size = 0;
+
+        let mut entries = BTreeMap::new();
+        let mut needs_second_pass = false;
+
+        for (key, (keyinfo, value)) in iter.into_iter() {
+            // pref of overall node is highest pref from keys.
+            // We're already looking at every entry here, so finding the overall pref here
+            // avoids a full scan later.
+            storage_pref.upgrade(keyinfo.storage_preference);
+            entries_size += packed::ENTRY_LEN + key.len() + value.len();
+
+            let curr_storage_pref = keyinfo.storage_preference;
+            if let Some((ckeyinfo, cvalue)) = entries.insert(CowBytes::from(key), (keyinfo, value))
+            {
+                // iterator has collisions, try to compensate
+                //
+                // this entry will no longer be part of the final map, subtract its size
+                entries_size -= packed::ENTRY_LEN + key.len() + cvalue.len();
+
+                // In case the old value increased the overall storage priority (faster), and the new
+                // value wouldn't have increased it as much, we might need to recalculate the
+                // proper preference in a second pass.
+                if ckeyinfo.storage_preference != curr_storage_pref {
+                    needs_second_pass = true;
+                }
+            }
+        }
+
+        if needs_second_pass {
+            storage_pref = StoragePreference::NONE;
+            for (keyinfo, _value) in entries.values() {
+                storage_pref.upgrade(keyinfo.storage_preference);
+            }
+        }
+
+        NVMLeafNode {
+            meta_data: NVMLeafNodeMetaData {
+                 storage_preference: AtomicStoragePreference::known(storage_pref),
+                 system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
+                 entries_size,
+            },
+            data: NVMLeafNodeData {
+                entries,
+            }
+        }
+    }
+}
+
+impl NVMLeafNode {
+    /// Constructs a new, empty `LeafNode`.
+    pub fn new() -> Self {
+        NVMLeafNode {
+            meta_data: NVMLeafNodeMetaData::new(),
+            data: NVMLeafNodeData::new(),
+        }
+    }
+
+    /// Returns the value for the given key.
+    pub fn get(&self, key: &[u8]) -> Option<SlicedCowBytes> {
+        self.data.entries.get(key).map(|(_info, data)| data).cloned()
+    }
+
+    pub(in crate::tree) fn get_with_info(&self, key: &[u8]) -> Option<(KeyInfo, SlicedCowBytes)> {
+        self.data.entries.get(key).cloned()
+    }
+
+    pub(in crate::tree) fn entries(&self) -> &BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)> {
+        &self.data.entries
+    }
+
+    pub(in crate::tree) fn entry_info(&mut self, key: &[u8]) -> Option<&mut KeyInfo> {
+        self.data.entries.get_mut(key).map(|e| &mut e.0)
+    }
+
+    /// Split the node and transfer entries to a given other node `right_sibling`.
+    /// Use entries which are, when summed up in-order, above the `min_size` limit.
+    /// Returns new pivot key and size delta to the left sibling.
+    fn do_split_off(
+        &mut self,
+        right_sibling: &mut Self,
+        min_size: usize,
+        max_size: usize,
+    ) -> (CowBytes, isize) {
+        debug_assert!(self.size() > max_size);
+        debug_assert!(right_sibling.meta_data.entries_size == 0);
+
+        let mut sibling_size = 0;
+        let mut sibling_pref = StoragePreference::NONE;
+        let mut split_key = None;
+        for (k, (keyinfo, v)) in self.data.entries.iter().rev() {
+            sibling_size += packed::ENTRY_LEN + k.len() + v.len();
+            sibling_pref.upgrade(keyinfo.storage_preference);
+
+            if packed::HEADER_FIXED_LEN + sibling_size >= min_size {
+                split_key = Some(k.clone());
+                break;
+            }
+        }
+        let split_key = split_key.unwrap();
+
+        right_sibling.data.entries = self.data.entries.split_off(&split_key);
+        self.meta_data.entries_size -= sibling_size;
+        right_sibling.meta_data.entries_size = sibling_size;
+        right_sibling.meta_data.storage_preference.set(sibling_pref);
+
+        // have removed many keys from self, no longer certain about own pref, mark invalid
+        self.meta_data.storage_preference.invalidate();
+
+        let size_delta = -(sibling_size as isize);
+
+        let pivot_key = self.data.entries.keys().next_back().cloned().unwrap();
+        (pivot_key, size_delta)
+    }
+
+    pub fn apply<K>(&mut self, key: K, pref: StoragePreference) -> Option<KeyInfo>
+    where
+        K: Borrow<[u8]>,
+    {
+        self.meta_data.storage_preference.invalidate();
+        self.data.entries.get_mut(key.borrow()).map(|entry| {
+            entry.0.storage_preference = pref;
+            entry.0.clone()
+        })
+    }
+
+    /// Inserts a new message as leaf entry.
+    pub fn insert<Q, M>(
+        &mut self,
+        key: Q,
+        keyinfo: KeyInfo,
+        msg: SlicedCowBytes,
+        msg_action: M,
+    ) -> isize
+    where
+        Q: Borrow<[u8]> + Into<CowBytes>,
+        M: MessageAction,
+    {
+        let size_before = self.meta_data.entries_size as isize;
+        let key_size = key.borrow().len();
+        let mut data = self.get(key.borrow());
+        msg_action.apply_to_leaf(key.borrow(), msg, &mut data);
+
+        if let Some(data) = data {
+            // Value was added or preserved by msg
+            self.meta_data.entries_size += data.len();
+            self.meta_data.storage_preference.upgrade(keyinfo.storage_preference);
+
+            if let Some((old_info, old_data)) =
+                self.data.entries.insert(key.into(), (keyinfo.clone(), data))
+            {
+                // There was a previous value in entries, which was now replaced
+                self.meta_data.entries_size -= old_data.len();
+
+                // if previous entry was stricter than new entry, invalidate
+                if old_info.storage_preference < keyinfo.storage_preference {
+                    self.meta_data.storage_preference.invalidate();
+                }
+            } else {
+                // There was no previous value in entries
+                self.meta_data.entries_size += packed::ENTRY_LEN;
+                self.meta_data.entries_size += key_size;
+            }
+        } else if let Some((old_info, old_data)) = self.data.entries.remove(key.borrow()) {
+            // The value was removed by msg, this may be a downgrade opportunity.
+            // The preference of the removed entry can't be stricter than the current node
+            // preference, by invariant. That leaves "less strict" and "as strict" as the
+            // node preference:
+            //
+            // - less strict:
+            //     If the preference of the removed entry is less strict than the current
+            //     node preference, there must be another entry which is preventing a downgrade.
+            // - as strict:
+            //     The removed entry _may_ have caused the original upgrade to this preference,
+            //     we'll have to trigger a scan to find out.
+            if self.meta_data.storage_preference.as_option() == Some(old_info.storage_preference) {
+                self.meta_data.storage_preference.invalidate();
+            }
+
+            self.meta_data.entries_size -= packed::ENTRY_LEN;
+            self.meta_data.entries_size -= key_size;
+            self.meta_data.entries_size -= old_data.len();
+        }
+        self.meta_data.entries_size as isize - size_before
+    }
+
+    /// Inserts messages as leaf entries.
+    pub fn insert_msg_buffer<M, I>(&mut self, msg_buffer: I, msg_action: M) -> isize
+    where
+        M: MessageAction,
+        I: IntoIterator<Item = (CowBytes, (KeyInfo, SlicedCowBytes))>,
+    {
+        let mut size_delta = 0;
+        for (key, (keyinfo, msg)) in msg_buffer {
+            size_delta += self.insert(key, keyinfo, msg, &msg_action);
+        }
+        size_delta
+    }
+
+    /// Splits this `LeafNode` into to two leaf nodes.
+    /// Returns a new right sibling, the corresponding pivot key, and the size
+    /// delta of this node.
+    pub fn split(
+        &mut self,
+        min_size: usize,
+        max_size: usize,
+    ) -> (Self, CowBytes, isize, LocalPivotKey) {
+        // assert!(self.size() > S::MAX);
+        let mut right_sibling = NVMLeafNode {
+            // During a split, preference can't be inherited because the new subset of entries
+            // might be a subset with a lower maximal preference.
+            meta_data : NVMLeafNodeMetaData { 
+                storage_preference: AtomicStoragePreference::known(StoragePreference::NONE),
+                system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
+                entries_size: 0
+            },
+            data: NVMLeafNodeData {
+                entries: BTreeMap::new()
+            }
+        };
+
+        // This adjusts sibling's size and pref according to its new entries
+        let (pivot_key, size_delta) = self.do_split_off(&mut right_sibling, min_size, max_size);
+
+        (
+            right_sibling,
+            pivot_key.clone(),
+            size_delta,
+            LocalPivotKey::Right(pivot_key),
+        )
+    }
+
+    /// Merge all entries from the *right* node into the *left* node.  Returns
+    /// the size change, positive for the left node, negative for the right
+    /// node.
+    pub fn merge(&mut self, right_sibling: &mut Self) -> isize {
+        self.data.entries.append(&mut right_sibling.data.entries);
+        let size_delta = right_sibling.meta_data.entries_size;
+        self.meta_data.entries_size += right_sibling.meta_data.entries_size;
+
+        self.meta_data.storage_preference
+            .upgrade_atomic(&right_sibling.meta_data.storage_preference);
+
+        // right_sibling is now empty, reset to defaults
+        right_sibling.meta_data.entries_size = 0;
+        right_sibling
+            .meta_data
+            .storage_preference
+            .set(StoragePreference::NONE);
+
+        size_delta as isize
+    }
+
+    /// Rebalances `self` and `right_sibling`. Returns `Merged`
+    /// if all entries of `right_sibling` have been merged into this node.
+    /// Otherwise, returns a new pivot key.
+    pub fn rebalance(
+        &mut self,
+        right_sibling: &mut Self,
+        min_size: usize,
+        max_size: usize,
+    ) -> FillUpResult {
+        let size_delta = self.merge(right_sibling);
+        if self.size() <= max_size {
+            FillUpResult::Merged { size_delta }
+        } else {
+            // First size_delta is from the merge operation where we split
+            let (pivot_key, split_size_delta) =
+                self.do_split_off(right_sibling, min_size, max_size);
+            FillUpResult::Rebalanced {
+                pivot_key,
+                size_delta: size_delta + split_size_delta,
+            }
+        }
+    }
+
+    /*pub fn range_delete(&mut self, start: &[u8], end: Option<&[u8]>) -> usize {
+        // https://github.com/rust-lang/rust/issues/42849
+        let size_before = self.entries_size;
+        let range = (
+            Bound::Included(start),
+            end.map_or(Bound::Unbounded, Bound::Excluded),
+        );
+        let mut keys = Vec::new();
+        for (key, (_keyinfo, value)) in self.entries.range_mut::<[u8], _>(range) {
+            self.entries_size -= key.len() + value.len();
+            keys.push(key.clone());
+        }
+        for key in keys {
+            self.entries.remove(&key);
+        }
+        size_before - self.entries_size
+    }*/    
+}
+
+impl NVMLeafNodeMetaData  {
+    /// Constructs a new, empty `LeafNode`.
+    pub fn new() -> Self {
+        NVMLeafNodeMetaData {
+            storage_preference: AtomicStoragePreference::known(StoragePreference::NONE),
+            system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
+            entries_size: 0,
+        }
+    }
+}
+
+impl NVMLeafNodeData  {
+    /// Constructs a new, empty `LeafNode`.
+    pub fn new() -> Self {
+        NVMLeafNodeData {
+            entries: BTreeMap::new(),
         }
     }
 }

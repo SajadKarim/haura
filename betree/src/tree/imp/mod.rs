@@ -123,8 +123,9 @@ where
         msg_action: M,
         dml: X,
         storage_preference: StoragePreference,
+        is_nvm: bool,
     ) -> Self {
-        let root_node = dml.insert(Node::empty_leaf(), tree_id, PivotKey::Root(tree_id));
+        let root_node = dml.insert(Node::empty_leaf(is_nvm), tree_id, PivotKey::Root(tree_id));
         Tree::new(root_node, tree_id, msg_action, dml, storage_preference)
     }
 

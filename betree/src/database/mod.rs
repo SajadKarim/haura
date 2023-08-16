@@ -241,7 +241,7 @@ impl DatabaseConfiguration {
         if let Some(cfg) = &self.metrics {
             metrics_init::<Self>(cfg, dmu.clone())?;
         }
-
+println!("...a...");
         let root_ptr = if let AccessMode::OpenIfExists | AccessMode::OpenOrCreate = self.access_mode
         {
             match Superblock::<ObjectPointer>::fetch_superblocks(dmu.pool()) {
@@ -310,12 +310,14 @@ impl DatabaseConfiguration {
 
             Ok((tree, root_ptr))
         } else {
+            println!("...creating a new tree nvm should be tree...");
             Superblock::<ObjectPointer>::clear_superblock(dmu.pool())?;
             let tree = RootTree::empty_tree(
                 ROOT_DATASET_ID,
                 DefaultMessageAction,
                 dmu,
                 ROOT_TREE_STORAGE_PREFERENCE,
+                true    //TODO: Karim...
             );
 
             for (tier_id, tier) in tree.dmu().handler().free_space_tier.iter().enumerate() {
