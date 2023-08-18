@@ -13,10 +13,22 @@ use std::{borrow::Borrow, collections::BTreeMap, iter::FromIterator};
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct LeafNode {
+    meta_data: LeafNodeMetaData,
+    data: LeafNodeData,
+}
+
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(super) struct LeafNodeMetaData {
     storage_preference: AtomicStoragePreference,
     /// A storage preference assigned by the Migration Policy
     system_storage_preference: AtomicSystemStoragePreference,
     entries_size: usize,
+}
+
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(super) struct LeafNodeData {
     entries: BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)>,
 }
 
@@ -34,13 +46,13 @@ pub(super) enum FillUpResult {
 
 impl Size for LeafNode {
     fn size(&self) -> usize {
-        packed::HEADER_FIXED_LEN + self.entries_size
+        packed::HEADER_FIXED_LEN + self.meta_data.entries_size
     }
 
     fn actual_size(&self) -> Option<usize> {
         Some(
             packed::HEADER_FIXED_LEN
-                + self
+                + self.data
                     .entries
                     .iter()
                     .map(|(key, (_keyinfo, value))| packed::ENTRY_LEN + key.len() + value.len())
@@ -51,28 +63,28 @@ impl Size for LeafNode {
 
 impl HasStoragePreference for LeafNode {
     fn current_preference(&self) -> Option<StoragePreference> {
-        self.storage_preference
+        self.meta_data.storage_preference
             .as_option()
-            .map(|pref| self.system_storage_preference.weak_bound(&pref))
+            .map(|pref| self.meta_data.system_storage_preference.weak_bound(&pref))
     }
 
     fn recalculate(&self) -> StoragePreference {
         let mut pref = StoragePreference::NONE;
 
-        for (keyinfo, _v) in self.entries.values() {
+        for (keyinfo, _v) in self.data.entries.values() {
             pref.upgrade(keyinfo.storage_preference);
         }
 
-        self.storage_preference.set(pref);
-        self.system_storage_preference.weak_bound(&pref)
+        self.meta_data.storage_preference.set(pref);
+        self.meta_data.system_storage_preference.weak_bound(&pref)
     }
 
     fn system_storage_preference(&self) -> StoragePreference {
-        self.system_storage_preference.borrow().into()
+        self.meta_data.system_storage_preference.borrow().into()
     }
 
     fn set_system_storage_preference(&mut self, pref: StoragePreference) {
-        self.system_storage_preference.set(pref)
+        self.meta_data.system_storage_preference.set(pref)
     }
 }
 
@@ -119,10 +131,14 @@ impl<'a> FromIterator<(&'a [u8], (KeyInfo, SlicedCowBytes))> for LeafNode {
         }
 
         LeafNode {
-            storage_preference: AtomicStoragePreference::known(storage_pref),
-            system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
-            entries_size,
-            entries,
+            meta_data: LeafNodeMetaData { 
+                storage_preference: AtomicStoragePreference::known(storage_pref),
+                system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
+                entries_size
+            },
+            data: LeafNodeData { 
+                entries: entries
+            }
         }
     }
 }
@@ -131,28 +147,32 @@ impl LeafNode {
     /// Constructs a new, empty `LeafNode`.
     pub fn new() -> Self {
         LeafNode {
-            storage_preference: AtomicStoragePreference::known(StoragePreference::NONE),
-            system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
-            entries_size: 0,
-            entries: BTreeMap::new(),
+            meta_data: LeafNodeMetaData { 
+                storage_preference: AtomicStoragePreference::known(StoragePreference::NONE),
+                system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
+                entries_size: 0,
+            },
+            data: LeafNodeData { 
+                entries: BTreeMap::new()
+            }
         }
     }
 
     /// Returns the value for the given key.
     pub fn get(&self, key: &[u8]) -> Option<SlicedCowBytes> {
-        self.entries.get(key).map(|(_info, data)| data).cloned()
+        self.data.entries.get(key).map(|(_info, data)| data).cloned()
     }
 
     pub(in crate::tree) fn get_with_info(&self, key: &[u8]) -> Option<(KeyInfo, SlicedCowBytes)> {
-        self.entries.get(key).cloned()
+        self.data.entries.get(key).cloned()
     }
 
     pub(in crate::tree) fn entries(&self) -> &BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)> {
-        &self.entries
+        &self.data.entries
     }
 
     pub(in crate::tree) fn entry_info(&mut self, key: &[u8]) -> Option<&mut KeyInfo> {
-        self.entries.get_mut(key).map(|e| &mut e.0)
+        self.data.entries.get_mut(key).map(|e| &mut e.0)
     }
 
     /// Split the node and transfer entries to a given other node `right_sibling`.
@@ -165,12 +185,12 @@ impl LeafNode {
         max_size: usize,
     ) -> (CowBytes, isize) {
         debug_assert!(self.size() > max_size);
-        debug_assert!(right_sibling.entries_size == 0);
+        debug_assert!(right_sibling.meta_data.entries_size == 0);
 
         let mut sibling_size = 0;
         let mut sibling_pref = StoragePreference::NONE;
         let mut split_key = None;
-        for (k, (keyinfo, v)) in self.entries.iter().rev() {
+        for (k, (keyinfo, v)) in self.data.entries.iter().rev() {
             sibling_size += packed::ENTRY_LEN + k.len() + v.len();
             sibling_pref.upgrade(keyinfo.storage_preference);
 
@@ -181,17 +201,17 @@ impl LeafNode {
         }
         let split_key = split_key.unwrap();
 
-        right_sibling.entries = self.entries.split_off(&split_key);
-        self.entries_size -= sibling_size;
-        right_sibling.entries_size = sibling_size;
-        right_sibling.storage_preference.set(sibling_pref);
+        right_sibling.data.entries = self.data.entries.split_off(&split_key);
+        self.meta_data.entries_size -= sibling_size;
+        right_sibling.meta_data.entries_size = sibling_size;
+        right_sibling.meta_data.storage_preference.set(sibling_pref);
 
         // have removed many keys from self, no longer certain about own pref, mark invalid
-        self.storage_preference.invalidate();
+        self.meta_data.storage_preference.invalidate();
 
         let size_delta = -(sibling_size as isize);
 
-        let pivot_key = self.entries.keys().next_back().cloned().unwrap();
+        let pivot_key = self.data.entries.keys().next_back().cloned().unwrap();
         (pivot_key, size_delta)
     }
 
@@ -199,8 +219,8 @@ impl LeafNode {
     where
         K: Borrow<[u8]>,
     {
-        self.storage_preference.invalidate();
-        self.entries.get_mut(key.borrow()).map(|entry| {
+        self.meta_data.storage_preference.invalidate();
+        self.data.entries.get_mut(key.borrow()).map(|entry| {
             entry.0.storage_preference = pref;
             entry.0.clone()
         })
@@ -218,32 +238,32 @@ impl LeafNode {
         Q: Borrow<[u8]> + Into<CowBytes>,
         M: MessageAction,
     {
-        let size_before = self.entries_size as isize;
+        let size_before = self.meta_data.entries_size as isize;
         let key_size = key.borrow().len();
         let mut data = self.get(key.borrow());
         msg_action.apply_to_leaf(key.borrow(), msg, &mut data);
 
         if let Some(data) = data {
             // Value was added or preserved by msg
-            self.entries_size += data.len();
-            self.storage_preference.upgrade(keyinfo.storage_preference);
+            self.meta_data.entries_size += data.len();
+            self.meta_data.storage_preference.upgrade(keyinfo.storage_preference);
 
             if let Some((old_info, old_data)) =
-                self.entries.insert(key.into(), (keyinfo.clone(), data))
+                self.data.entries.insert(key.into(), (keyinfo.clone(), data))
             {
                 // There was a previous value in entries, which was now replaced
-                self.entries_size -= old_data.len();
+                self.meta_data.entries_size -= old_data.len();
 
                 // if previous entry was stricter than new entry, invalidate
                 if old_info.storage_preference < keyinfo.storage_preference {
-                    self.storage_preference.invalidate();
+                    self.meta_data.storage_preference.invalidate();
                 }
             } else {
                 // There was no previous value in entries
-                self.entries_size += packed::ENTRY_LEN;
-                self.entries_size += key_size;
+                self.meta_data.entries_size += packed::ENTRY_LEN;
+                self.meta_data.entries_size += key_size;
             }
-        } else if let Some((old_info, old_data)) = self.entries.remove(key.borrow()) {
+        } else if let Some((old_info, old_data)) = self.data.entries.remove(key.borrow()) {
             // The value was removed by msg, this may be a downgrade opportunity.
             // The preference of the removed entry can't be stricter than the current node
             // preference, by invariant. That leaves "less strict" and "as strict" as the
@@ -255,15 +275,15 @@ impl LeafNode {
             // - as strict:
             //     The removed entry _may_ have caused the original upgrade to this preference,
             //     we'll have to trigger a scan to find out.
-            if self.storage_preference.as_option() == Some(old_info.storage_preference) {
-                self.storage_preference.invalidate();
+            if self.meta_data.storage_preference.as_option() == Some(old_info.storage_preference) {
+                self.meta_data.storage_preference.invalidate();
             }
 
-            self.entries_size -= packed::ENTRY_LEN;
-            self.entries_size -= key_size;
-            self.entries_size -= old_data.len();
+            self.meta_data.entries_size -= packed::ENTRY_LEN;
+            self.meta_data.entries_size -= key_size;
+            self.meta_data.entries_size -= old_data.len();
         }
-        self.entries_size as isize - size_before
+        self.meta_data.entries_size as isize - size_before
     }
 
     /// Inserts messages as leaf entries.
@@ -291,10 +311,14 @@ impl LeafNode {
         let mut right_sibling = LeafNode {
             // During a split, preference can't be inherited because the new subset of entries
             // might be a subset with a lower maximal preference.
-            storage_preference: AtomicStoragePreference::known(StoragePreference::NONE),
-            system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
-            entries_size: 0,
-            entries: BTreeMap::new(),
+            meta_data: LeafNodeMetaData { 
+                storage_preference: AtomicStoragePreference::known(StoragePreference::NONE),
+                system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
+                entries_size: 0
+            },
+            data: LeafNodeData { 
+                entries: BTreeMap::new()
+            }
         };
 
         // This adjusts sibling's size and pref according to its new entries
@@ -312,16 +336,16 @@ impl LeafNode {
     /// the size change, positive for the left node, negative for the right
     /// node.
     pub fn merge(&mut self, right_sibling: &mut Self) -> isize {
-        self.entries.append(&mut right_sibling.entries);
-        let size_delta = right_sibling.entries_size;
-        self.entries_size += right_sibling.entries_size;
+        self.data.entries.append(&mut right_sibling.data.entries);
+        let size_delta = right_sibling.meta_data.entries_size;
+        self.meta_data.entries_size += right_sibling.meta_data.entries_size;
 
-        self.storage_preference
-            .upgrade_atomic(&right_sibling.storage_preference);
+        self.meta_data.storage_preference
+            .upgrade_atomic(&right_sibling.meta_data.storage_preference);
 
         // right_sibling is now empty, reset to defaults
-        right_sibling.entries_size = 0;
-        right_sibling
+        right_sibling.meta_data.entries_size = 0;
+        right_sibling.meta_data
             .storage_preference
             .set(StoragePreference::NONE);
 
@@ -417,7 +441,7 @@ mod tests {
         }
 
         fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-            let v: Vec<_> = self
+            let v: Vec<_> = self.data
                 .entries
                 .clone()
                 .into_iter()
