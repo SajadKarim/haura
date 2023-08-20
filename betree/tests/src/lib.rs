@@ -179,6 +179,12 @@ impl TestDriver {
 
         BufReader::new(obj.cursor()).bytes().count() as u64
     }
+
+    fn sync(&mut self) {
+        self.database.sync();
+        self.database.drop_cache();
+
+    }
 }
 
 #[test]
@@ -203,6 +209,10 @@ fn insert_single() {
     driver.checkpoint("deleted foo");
     driver.insert_random(b"bar", StoragePreference::NONE, 8192, 3000);
     driver.checkpoint("inserted bar");
+
+    driver.sync();
+    println!(".... reading foo");
+    driver.read_for_length(b"foo");
 }
 
 #[test]

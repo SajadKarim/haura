@@ -61,6 +61,8 @@ fn convert_err(err: DbError) -> io::Error {
 
 impl<'a, 'b> Read for ObjectCursor<'a, 'b> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        println!("...inside cursor read");
+        
         let res = self.handle.read_at(buf, self.pos);
 
         if let Ok(n) | Err((n, _)) = res {

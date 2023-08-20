@@ -809,6 +809,7 @@ impl<'ds> ObjectHandle<'ds> {
     /// Read object data into `buf`, starting at offset `offset`, and returning the amount of
     /// actually read bytes.
     pub fn read_at(&self, mut buf: &mut [u8], offset: u64) -> result::Result<u64, (u64, Error)> {
+        println!("... read_at");
         let oid = self.object.id;
         let mut total_read = 0;
 

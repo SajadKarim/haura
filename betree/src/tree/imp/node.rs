@@ -14,7 +14,7 @@ use crate::{
     database::DatasetId,
     size::{Size, SizeMut, StaticSize},
     storage_pool::DiskOffset,
-    tree::{pivot_key::LocalPivotKey, MessageAction},
+    tree::{pivot_key::LocalPivotKey, MessageAction, imp::leaf::ArchivedLeafNode},
     StoragePreference,
 };
 use bincode::{deserialize, serialize_into};
@@ -24,6 +24,14 @@ use std::{
     collections::BTreeMap,
     io::{self, Write},
     mem::replace,
+};
+
+use rkyv::{
+    archived_root,
+    ser::{serializers::AllocSerializer, ScratchSpace, Serializer},
+    vec::{ArchivedVec, VecResolver},
+    with::{ArchiveWith, DeserializeWith, SerializeWith},
+    Archive, Archived, Deserialize, Fallible, Infallible, Serialize,
 };
 
 /// The tree node type.
@@ -81,8 +89,28 @@ impl<R: HasStoragePreference + StaticSize> HasStoragePreference for Node<R> {
 impl<R: ObjectReference + HasStoragePreference> Object<R> for Node<R> {
     fn pack<W: Write>(&self, mut writer: W) -> Result<(), io::Error> {
         match self.0 {
-            PackedLeaf(ref map) => writer.write_all(map.inner()),
-            Leaf(ref leaf) => PackedMap::pack(leaf, writer),
+            //PackedLeaf(ref map) => { println!("..................... pack leaf node"); writer.write_all(map.inner())},
+            //Leaf(ref leaf) => { println!("..................... pack leaf node"); PackedMap::pack(leaf, writer)},
+            PackedLeaf(ref map) => unreachable!("... commented out PackedLeaf implementation..."),
+            Leaf(ref leaf) => {
+                println!("..................... pack leaf node");
+
+                //writer.write_all(&[0xFFu8, 0xFF, 0xFF, 0xFF] as &[u8])?;
+                //serialize_into(writer, leaf)
+                //    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+
+                use rkyv::{Archive, Deserialize, Serialize};
+                use rkyv::ser::{Serializer, serializers::AllocSerializer};
+
+                let mut serializer = rkyv::ser::serializers::AllocSerializer::<0>::default();
+                serializer.serialize_value(leaf).unwrap();
+                let bytes = serializer.into_serializer().into_inner();
+                writer.write(bytes.as_ref()).map(|length| {println!("print thses much bytes {}",length); ()}).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+                /*match writer.write(bytes) {
+                    Ok(_) => Ok(()),
+                    _ => io::Error::new(io::ErrorKind::InvalidData, e)
+                }*/
+            },
             Internal(ref internal) => {
                 writer.write_all(&[0xFFu8, 0xFF, 0xFF, 0xFF] as &[u8])?;
                 serialize_into(writer, internal)
@@ -98,12 +126,35 @@ impl<R: ObjectReference + HasStoragePreference> Object<R> for Node<R> {
                 Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
             }
         } else {
+           
             // storage_preference is not preserved for packed leaves,
             // because they will not be written back to disk until modified,
             // and every modification requires them to be unpacked.
             // The leaf contents are scanned cheaply during unpacking, which
             // recalculates the correct storage_preference for the contained keys.
-            Ok(Node(PackedLeaf(PackedMap::new(data.into_vec()))))
+            println!("..................... unpack leaf node");
+            //Ok(Node(PackedLeaf(PackedMap::new(data.into_vec()))))
+            /*match deserialize::<LeafNode>(&data[..]) {
+                Ok(leaf) => Ok(Node(Leaf(leaf))),
+                Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
+            }*/
+
+            //let archived = rkyv::check_archived_root::<LeafNode>(&data[..]).unwrap();
+
+            let archivedleafnode: &ArchivedLeafNode = unsafe { archived_root::<LeafNode>(&data[..]) };
+            
+            //let actualleafnode: LeafNode  = archivedleafnode.deserialize(&mut Infallible).unwrap();
+
+            // And you can always deserialize back to the original type
+            match <ArchivedLeafNode as rkyv::Deserialize<rkyv::with::With<LeafNode, LeafNode>, rkyv::Infallible>>::deserialize(archivedleafnode, &mut Infallible) {
+                Ok(leaf) => Ok(Node(Leaf(leaf.into_inner()))),
+                Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
+            }
+
+            /* match deserialize::<LeafNode>(&data[..]) {
+                Ok(leaf) => Ok(Node(Leaf(leaf))),
+                Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
+            }*/
         }
     }
 

@@ -25,7 +25,8 @@ use std::{borrow::Borrow, marker::PhantomData, mem, ops::RangeBounds};
 
 /// Additional information for a single entry. Concerns meta information like
 /// the desired storage level of a key.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[archive(check_bytes)]
 pub struct KeyInfo {
     storage_preference: StoragePreference,
 }
@@ -238,8 +239,10 @@ where
 
     fn get_node(&self, np_ref: &RwLock<X::ObjectRef>) -> Result<X::CacheValueRef, Error> {
         if let Some(node) = self.dml.try_get(&np_ref.read()) {
+            println!("..in cache");            
             return Ok(node);
         }
+        println!("..from disk");
         Ok(self.dml.get(&mut np_ref.write())?)
     }
 

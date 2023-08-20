@@ -9,15 +9,28 @@ use crate::{
 };
 use std::{borrow::Borrow, collections::BTreeMap, iter::FromIterator};
 
+//use serde::{Deserialize, Serialize};
+//use rkyv::{Archive, Deserialize, Serialize};
+//use rkyv::ser::{Serializer, serializers::AllocSerializer};
+use rkyv::{
+    archived_root,
+    ser::{serializers::AllocSerializer, ScratchSpace, Serializer},
+    vec::{ArchivedVec, VecResolver},
+    with::{ArchiveWith, DeserializeWith, SerializeWith},
+    Archive, Archived, Deserialize, Fallible, Infallible, Serialize,
+};
+
 /// A leaf node of the tree holds pairs of keys values which are plain data.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Archive, Serialize, rkyv::Deserialize)]
+#[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct LeafNode {
     meta_data: LeafNodeMetaData,
     data: LeafNodeData,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Archive, Serialize, rkyv::Deserialize)]
+#[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct LeafNodeMetaData {
     storage_preference: AtomicStoragePreference,
@@ -26,7 +39,8 @@ pub(super) struct LeafNodeMetaData {
     entries_size: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Archive, Serialize, rkyv::Deserialize)]
+#[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct LeafNodeData {
     entries: BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)>,
