@@ -21,29 +21,29 @@ use rkyv::{
 };
 
 /// A leaf node of the tree holds pairs of keys values which are plain data.
-#[derive(Debug, Clone, Archive, Serialize, rkyv::Deserialize)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 #[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct LeafNode {
-    meta_data: LeafNodeMetaData,
-    data: LeafNodeData,
+    pub meta_data: LeafNodeMetaData,
+    pub data: LeafNodeData,
 }
 
-#[derive(Debug, Clone, Archive, Serialize, rkyv::Deserialize)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 #[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct LeafNodeMetaData {
-    storage_preference: AtomicStoragePreference,
+    pub storage_preference: AtomicStoragePreference,
     /// A storage preference assigned by the Migration Policy
-    system_storage_preference: AtomicSystemStoragePreference,
-    entries_size: usize,
+    pub system_storage_preference: AtomicSystemStoragePreference,
+    pub entries_size: usize,
 }
 
-#[derive(Debug, Clone, Archive, Serialize, rkyv::Deserialize)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 #[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct LeafNodeData {
-    entries: BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)>,
+    pub entries: BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)>,
 }
 
 /// Case-dependent outcome of a rebalance operation.

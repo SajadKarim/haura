@@ -139,22 +139,29 @@ impl<R: ObjectReference + HasStoragePreference> Object<R> for Node<R> {
                 Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
             }*/
 
-            //let archived = rkyv::check_archived_root::<LeafNode>(&data[..]).unwrap();
+            //let archivedleafnode = rkyv::check_archived_root::<LeafNode>(&data[..]).unwrap();
 
             let archivedleafnode: &ArchivedLeafNode = unsafe { archived_root::<LeafNode>(&data[..]) };
             
-            //let actualleafnode: LeafNode  = archivedleafnode.deserialize(&mut Infallible).unwrap();
+            println!("..............hey {:?}", archivedleafnode.data.entries.len());
+            let meta_data: crate::tree::imp::leaf::LeafNodeMetaData = archivedleafnode.meta_data.deserialize(&mut Infallible).unwrap();
+            let data: crate::tree::imp::leaf::LeafNodeData = archivedleafnode.data.deserialize(&mut Infallible).unwrap();
+            let actualleafnode = LeafNode {
+                data, meta_data
+            };
+            // let actualleafnode: LeafNode  = archivedleafnode.deserialize(&mut Infallible).unwrap();
 
             // And you can always deserialize back to the original type
-            match <ArchivedLeafNode as rkyv::Deserialize<rkyv::with::With<LeafNode, LeafNode>, rkyv::Infallible>>::deserialize(archivedleafnode, &mut Infallible) {
+            /*match archivedleafnode.deserialize(&mut Infallible) {
                 Ok(leaf) => Ok(Node(Leaf(leaf.into_inner()))),
                 Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
-            }
+            }*/
 
             /* match deserialize::<LeafNode>(&data[..]) {
                 Ok(leaf) => Ok(Node(Leaf(leaf))),
                 Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
             }*/
+            Err(io::Error::new(io::ErrorKind::InvalidData, "as"))
         }
     }
 
