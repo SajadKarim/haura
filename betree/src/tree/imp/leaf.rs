@@ -43,6 +43,7 @@ pub(super) struct LeafNodeMetaData {
 #[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct LeafNodeData {
+    #[with(rkyv::with::AsVec)]
     pub entries: BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)>,
 }
 

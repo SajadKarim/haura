@@ -13,35 +13,45 @@ use crate::{
     tree::{pivot_key::LocalPivotKey, KeyInfo, MessageAction},
     AtomicStoragePreference, StoragePreference,
 };
-use bincode::serialized_size;
+//use bincode::serialized_size;
 use parking_lot::RwLock;
-use serde::{Deserialize, Serialize};
+//use serde::{Deserialize, Serialize};
 use std::{borrow::Borrow, collections::BTreeMap, mem::replace};
+use rkyv::{
+    archived_root,
+    ser::{serializers::AllocSerializer, ScratchSpace, Serializer},
+    vec::{ArchivedVec, VecResolver},
+    with::{ArchiveWith, DeserializeWith, SerializeWith},
+    Archive, Archived, Deserialize, Fallible, Infallible, Serialize,
+};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Archive, Serialize, Deserialize)]
+#[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct InternalNode<T> {
-    meta_data: InternalNodeMetaData,
-    data: InternalNodeData<T>,
+    pub meta_data: InternalNodeMetaData,
+    pub data: InternalNodeData<T>,
     //data_offset: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Archive, Serialize, Deserialize)]
+#[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct InternalNodeMetaData {
-    level: u32,
-    entries_size: usize,
-    #[serde(skip)]
-    system_storage_preference: AtomicSystemStoragePreference,
-    #[serde(skip)]
-    pref: AtomicStoragePreference,
+    pub level: u32,
+    pub entries_size: usize,
+    //#[serde(skip)]
+    pub system_storage_preference: AtomicSystemStoragePreference,
+    //#[serde(skip)]
+    pub pref: AtomicStoragePreference,
     pub(super) pivot: Vec<CowBytes>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Archive, Serialize, Deserialize)]
+#[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct InternalNodeData<T> {
-    children: Vec<T>,
+    pub children: Vec<T>,
 }
 
 // @tilpner:
@@ -87,12 +97,17 @@ static EMPTY_NODE: InternalNode<()> = InternalNode {
 
 #[inline]
 fn internal_node_base_size() -> usize {
-    // NOTE: The overhead introduced by using `serialized_size` is negligible
+    /*// NOTE: The overhead introduced by using `serialized_size` is negligible
     // and only about 3ns, but we can use OnceCell once (🥁) it is available.
     serialized_size(&EMPTY_NODE)
         .expect("Known node layout could not be estimated. This is an error in bincode.")
         // We know that this is valid as the maximum size in bytes is below u32
-        as usize
+        as usize*/
+
+        let mut serializer = rkyv::ser::serializers::AllocSerializer::<0>::default();
+        serializer.serialize_value(&EMPTY_NODE).unwrap();
+        let bytes = serializer.into_serializer().into_inner();
+        bytes.len()
 }
 
 impl<T: Size> Size for InternalNode<T> {

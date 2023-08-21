@@ -14,7 +14,7 @@ use crate::{
     database::DatasetId,
     size::{Size, SizeMut, StaticSize},
     storage_pool::DiskOffset,
-    tree::{pivot_key::LocalPivotKey, MessageAction, imp::leaf::ArchivedLeafNode},
+    tree::{pivot_key::LocalPivotKey, MessageAction, imp::{leaf::ArchivedLeafNode, internal::ArchivedInternalNode}},
     StoragePreference,
 };
 use bincode::{deserialize, serialize_into};
@@ -105,26 +105,85 @@ impl<R: ObjectReference + HasStoragePreference> Object<R> for Node<R> {
                 let mut serializer = rkyv::ser::serializers::AllocSerializer::<0>::default();
                 serializer.serialize_value(leaf).unwrap();
                 let bytes = serializer.into_serializer().into_inner();
-                writer.write(bytes.as_ref()).map(|length| {println!("print thses much bytes {}",length); ()}).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+                writer.write(bytes.as_ref()).map(|length| {
+                    
+                    println!("print thses much bytes {}",length); 
+/*
+                let archivedleafnode = rkyv::check_archived_root::<LeafNode>(&bytes).unwrap();
+
+                let archivedleafnode: &ArchivedLeafNode = unsafe { archived_root::<LeafNode>(&bytes) };
+            
+            //let meta_data: crate::tree::imp::leaf::LeafNodeMetaData = archivedleafnode.meta_data.deserialize(&mut Infallible).unwrap();
+            //let map = archivedleafnode.data.entries.deserialize(&mut Infallible).unwrap().into_inner();
+            // let data = <crate::tree::imp::leaf::ArchivedLeafNodeData as rkyv::Deserialize<rkyv::with::With<crate::tree::imp::leaf::LeafNodeData, rkyv::with::AsVec>, rkyv::Infallible>>::deserialize(&archivedleafnode.data, &mut Infallible).unwrap().into_inner();
+            //let actualleafnode = LeafNode {
+            //    data, meta_data
+            //};
+            //let actualleafnode: LeafNode  = archivedleafnode.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).unwrap();
+            
+
+            // And you can always deserialize back to the original type
+                    let result: LeafNode = archivedleafnode.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).unwrap();
+                    println!("... des.. {}", result.data.entries.len());
+            
+                
+  */                  
+                    ()
+                
+                }).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
                 /*match writer.write(bytes) {
                     Ok(_) => Ok(()),
                     _ => io::Error::new(io::ErrorKind::InvalidData, e)
                 }*/
             },
-            Internal(ref internal) => {
+            /*Internal(ref internal) => {
                 writer.write_all(&[0xFFu8, 0xFF, 0xFF, 0xFF] as &[u8])?;
                 serialize_into(writer, internal)
                     .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
-            }
+            }*/
+            Internal(ref internal) => {
+                println!("..................... pack internal node");
+
+                let mut serializer = rkyv::ser::serializers::AllocSerializer::<0>::default();
+                serializer.serialize_value(internal).unwrap();
+                let bytes = serializer.into_serializer().into_inner();
+                writer.write(bytes.as_ref()).map(|length| {
+                    
+                    println!("print thses much bytes {}",length); 
+                    ()                
+                }).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+                /*match writer.write(bytes) {
+                    Ok(_) => Ok(()),
+                    _ => io::Error::new(io::ErrorKind::InvalidData, e)
+                }*/
+            },
         }
     }
 
     fn unpack_at(_offset: DiskOffset, d_id: DatasetId, data: Box<[u8]>) -> Result<Self, io::Error> {
         if data[..4] == [0xFFu8, 0xFF, 0xFF, 0xFF] {
-            match deserialize::<InternalNode<_>>(&data[4..]) {
-                Ok(internal) => Ok(Node(Internal(internal.complete_object_refs(d_id)))),
+            println!("..................... unpack internal node");
+
+            //let archivedleafnode: &ArchivedInternalNode<ChildBuffer<Node<_>>> = rkyv::check_archived_root::<InternalNode<ChildBuffer<Node<_>>>>(&data[4..]).unwrap();
+
+            let archivedleafnode = unsafe { archived_root::<InternalNode<_>>(&data[4..]) };
+            
+            let result: Result<InternalNode<_>, _> = archivedleafnode.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new());
+            
+            
+            match result {          
+                Ok(internal) => {
+                    println!(".........internal.....data len: {}, entries_size: {}, len: {}", data.len(), internal.meta_data.entries_size, internal.data.children.len());
+
+                    Ok(Node(Internal(internal.complete_object_refs(d_id))))
+                },
                 Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
             }
+
+            /*match deserialize::<InternalNode<_>>(&data[4..]) {
+                Ok(internal) => Ok(Node(Internal(internal.complete_object_refs(d_id)))),
+                Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
+            }*/
         } else {
            
             // storage_preference is not preserved for packed leaves,
@@ -132,36 +191,44 @@ impl<R: ObjectReference + HasStoragePreference> Object<R> for Node<R> {
             // and every modification requires them to be unpacked.
             // The leaf contents are scanned cheaply during unpacking, which
             // recalculates the correct storage_preference for the contained keys.
-            println!("..................... unpack leaf node");
+            panic!("..................... unpack leaf node");
             //Ok(Node(PackedLeaf(PackedMap::new(data.into_vec()))))
             /*match deserialize::<LeafNode>(&data[..]) {
                 Ok(leaf) => Ok(Node(Leaf(leaf))),
                 Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
             }*/
 
-            //let archivedleafnode = rkyv::check_archived_root::<LeafNode>(&data[..]).unwrap();
+            let archivedleafnode = rkyv::check_archived_root::<LeafNode>(&data[..]).unwrap();
 
-            let archivedleafnode: &ArchivedLeafNode = unsafe { archived_root::<LeafNode>(&data[..]) };
+            let archivedleafnode: &ArchivedLeafNode = unsafe { archived_root::<LeafNode>(&data) };
             
-            println!("..............hey {:?}", archivedleafnode.data.entries.len());
-            let meta_data: crate::tree::imp::leaf::LeafNodeMetaData = archivedleafnode.meta_data.deserialize(&mut Infallible).unwrap();
-            let data: crate::tree::imp::leaf::LeafNodeData = archivedleafnode.data.deserialize(&mut Infallible).unwrap();
-            let actualleafnode = LeafNode {
-                data, meta_data
-            };
-            // let actualleafnode: LeafNode  = archivedleafnode.deserialize(&mut Infallible).unwrap();
+            //let meta_data: crate::tree::imp::leaf::LeafNodeMetaData = archivedleafnode.meta_data.deserialize(&mut Infallible).unwrap();
+            //let map = archivedleafnode.data.entries.deserialize(&mut Infallible).unwrap().into_inner();
+            // let data = <crate::tree::imp::leaf::ArchivedLeafNodeData as rkyv::Deserialize<rkyv::with::With<crate::tree::imp::leaf::LeafNodeData, rkyv::with::AsVec>, rkyv::Infallible>>::deserialize(&archivedleafnode.data, &mut Infallible).unwrap().into_inner();
+            //let actualleafnode = LeafNode {
+            //    data, meta_data
+            //};
+            //let actualleafnode: LeafNode  = archivedleafnode.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).unwrap();
+            
 
             // And you can always deserialize back to the original type
-            /*match archivedleafnode.deserialize(&mut Infallible) {
-                Ok(leaf) => Ok(Node(Leaf(leaf.into_inner()))),
+            let result: Result<LeafNode, _> = archivedleafnode.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new());
+            
+            
+            match result {          
+                Ok(leaf) => {
+                    println!("..............data len: {}, entries_size: {}, len: {}", data.len(), leaf.meta_data.entries_size, leaf.data.entries.len());
+
+                    Ok(Node(Leaf(leaf)))
+                },
                 Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
-            }*/
+            }
 
             /* match deserialize::<LeafNode>(&data[..]) {
                 Ok(leaf) => Ok(Node(Leaf(leaf))),
                 Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
             }*/
-            Err(io::Error::new(io::ErrorKind::InvalidData, "as"))
+            //Err(io::Error::new(io::ErrorKind::InvalidData, "as"))
         }
     }
 

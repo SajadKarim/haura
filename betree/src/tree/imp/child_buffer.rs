@@ -11,24 +11,76 @@ use crate::{
     AtomicStoragePreference, StoragePreference,
 };
 use parking_lot::RwLock;
-use serde::{Deserialize, Serialize};
+//use serde::{Deserialize, Serialize};
 use std::{
     borrow::Borrow,
     collections::{btree_map::Entry, BTreeMap, Bound},
-    mem::replace,
+    mem::replace, any::type_name,
+};
+use rkyv::{
+    archived_root,
+    ser::{serializers::AllocSerializer, ScratchSpace, Serializer},
+    vec::{ArchivedVec, VecResolver},
+    with::{ArchiveWith, DeserializeWith, SerializeWith},
+    Archive, Archived, Deserialize, Fallible, Infallible, Serialize, AlignedVec,
 };
 
+pub struct EncodeNodePointer;
+pub struct NodePointerResolver {
+    len: usize,
+    inner: VecResolver,
+}
+
 /// A buffer for messages that belong to a child of a tree node.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(bound(serialize = "N: Serialize", deserialize = "N: Deserialize<'de>"))]
+#[derive(Debug, Archive, Serialize, Deserialize)]
+#[archive(check_bytes)]
+//#[serde(bound(serialize = "N: Serialize", deserialize = "N: Deserialize<'de>"))]
 pub(super) struct ChildBuffer<N: 'static> {
     pub(super) messages_preference: AtomicStoragePreference,
-    #[serde(skip)]
+    //#[serde(skip)]
     pub(super) system_storage_preference: AtomicSystemStoragePreference,
     buffer_entries_size: usize,
     pub(super) buffer: BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)>,
-    #[serde(with = "ser_np")]
+    //#[serde(with = "ser_np")]
+    #[with(EncodeNodePointer)]
     pub(super) node_pointer: RwLock<N>,
+}
+
+impl<N> ArchiveWith<RwLock<N>> for EncodeNodePointer {
+    type Archived = ArchivedVec<u8>;
+    type Resolver = NodePointerResolver;
+
+    unsafe fn resolve_with(
+        _: &RwLock<N>,
+        pos: usize,
+        resolver: Self::Resolver,
+        out: *mut Self::Archived,
+    ) {
+        unreachable!("impl<N> ArchiveWith<RwLock<N>> for EncodeNodePointer");
+        //ArchivedVec::resolve_from_len(resolver.len, pos, resolver.inner, out);
+    }
+}
+
+impl<N, S: ScratchSpace + Serializer + ?Sized> SerializeWith<RwLock<N>, S> for EncodeNodePointer 
+where <S as Fallible>::Error: std::fmt::Debug {
+    fn serialize_with(field: &RwLock<N>, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
+
+        //field.read().pack();
+
+        println!("-->{:?}", type_name::<N>());
+
+        //let mut _ser = rkyv::ser::serializers::AllocSerializer::<0>::default();
+        //_ser.serialize_value(&field.read().into()).unwrap();
+        //let bytes = _ser.into_serializer().into_inner();
+        
+        unreachable!("impl<N> ArchiveWith<RwLock<N>> for EncodeNodePointer 1");
+    }
+}
+
+impl<N, D: Fallible + ?Sized> DeserializeWith<Archived<Vec<u8>>, RwLock<N>, D> for EncodeNodePointer {
+    fn deserialize_with(field: &Archived<Vec<u8>>, _: &mut D) -> Result<RwLock<N>, D::Error> {
+        unreachable!("impl<N> ArchiveWith<RwLock<N>> for EncodeNodePointer 2");
+    }
 }
 
 impl Size for (KeyInfo, SlicedCowBytes) {

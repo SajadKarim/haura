@@ -212,7 +212,7 @@ fn insert_single() {
 
     driver.sync();
     println!(".... reading foo");
-    driver.read_for_length(b"foo");
+    println!("{}...", driver.read_for_length(b"bar"));
 }
 
 #[test]
