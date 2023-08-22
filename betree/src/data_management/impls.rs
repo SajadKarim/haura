@@ -7,8 +7,10 @@ use crate::{
     StoragePreference,
 };
 use serde::{
-    de::DeserializeOwned, ser::Error as SerError, Deserialize, Deserializer, Serialize, Serializer,
+    de::DeserializeOwned, ser::Error as SerError,
 };
+
+use rkyv::ser::Serializer;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct ModifiedObjectId {
@@ -41,7 +43,7 @@ pub enum ObjRef<P> {
 impl<D> super::ObjectReference for ObjRef<ObjectPointer<D>>
 where
     D: std::fmt::Debug + 'static,
-    ObjectPointer<D>: Serialize + DeserializeOwned + StaticSize + Clone,
+    ObjectPointer<D>: serde::Serialize + DeserializeOwned + StaticSize + Clone,
 {
     type ObjectPointer = ObjectPointer<D>;
     fn get_unmodified(&self) -> Option<&ObjectPointer<D>> {
@@ -70,6 +72,42 @@ where
         match self {
             ObjRef::Incomplete(_) => unreachable!(),
             ObjRef::Unmodified(_, pk) | ObjRef::Modified(_, pk) | ObjRef::InWriteback(_, pk) => pk,
+        }
+    }
+
+    fn serialize_unmodified<W: std::io::Write>(&self, w : &mut W) -> Result<(), std::io::Error> {
+
+        if let ObjRef::Unmodified(ref p, ..) | ObjRef::Incomplete(ref p) = self {
+            
+            bincode::serialize_into(w, p)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e));
+
+                    /*encoded.push(p.decompression_tag() as u8);
+            encoded.extend((p.checksum().fmt(f). as u64).to_ne_bytes());
+            encoded.push(p.offset().as_u64());
+            encoded.push(p.size());
+            encoded.push(p.generation());
+            encoded.push(p.info());
+            */
+            
+            //let mut _serializer = rkyv::ser::serializers::AllocSerializer::<0>::default();            
+            //_serializer.serialize_value(p).unwrap();
+            //let bytes = _serializer.into_serializer().into_inner();
+    
+            Ok(())
+    
+        } else {
+            Ok(())
+        }
+    }
+
+    fn deserialize_and_set_unmodified(bytes: & [u8]) -> Result<Self, std::io::Error> {
+
+        match bincode::deserialize::<ObjectPointer<D>>(bytes) {
+            Ok(p) => {
+                Ok(ObjRef::Unmodified(p.clone(), PivotKey::Root(crate::database::DatasetId(0))))
+            },
+            Err(e) => unimplemented!("..."),
         }
     }
 }
@@ -129,10 +167,10 @@ impl<P: StaticSize> StaticSize for ObjRef<P> {
     }
 }
 
-impl<P: Serialize> Serialize for ObjRef<P> {
+impl<P: serde::Serialize> serde::Serialize for ObjRef<P> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: serde::Serializer,
     {
         match *self {
             ObjRef::Modified(..) => Err(S::Error::custom(
@@ -148,13 +186,13 @@ impl<P: Serialize> Serialize for ObjRef<P> {
     }
 }
 
-impl<'de, D> Deserialize<'de> for ObjRef<ObjectPointer<D>>
+impl<'de, D> serde::Deserialize<'de> for ObjRef<ObjectPointer<D>>
 where
-    ObjectPointer<D>: Deserialize<'de>,
+    ObjectPointer<D>: serde::Deserialize<'de>,
 {
     fn deserialize<E>(deserializer: E) -> Result<Self, E::Error>
     where
-        E: Deserializer<'de>,
+        E: serde::Deserializer<'de>,
     {
         ObjectPointer::<D>::deserialize(deserializer).map(ObjRef::Incomplete)
     }

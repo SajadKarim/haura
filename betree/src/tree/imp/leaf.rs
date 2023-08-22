@@ -21,7 +21,7 @@ use rkyv::{
 };
 
 /// A leaf node of the tree holds pairs of keys values which are plain data.
-#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Archive, Serialize, Deserialize)]
 #[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct LeafNode {
@@ -29,7 +29,7 @@ pub(super) struct LeafNode {
     pub data: LeafNodeData,
 }
 
-#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Archive, Serialize, Deserialize)]
 #[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct LeafNodeMetaData {
@@ -39,7 +39,7 @@ pub(super) struct LeafNodeMetaData {
     pub entries_size: usize,
 }
 
-#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Archive, Serialize, Deserialize)]
 #[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct LeafNodeData {

@@ -25,7 +25,7 @@ use rkyv::{
     Archive, Archived, Deserialize, Fallible, Infallible, Serialize,
 };
 
-#[derive(Debug, Archive, Serialize, Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Archive, Serialize, Deserialize)]
 #[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct InternalNode<T> {
@@ -34,7 +34,7 @@ pub(super) struct InternalNode<T> {
     //data_offset: u32,
 }
 
-#[derive(Debug, Archive, Serialize, Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Archive, Serialize, Deserialize)]
 #[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct InternalNodeMetaData {
@@ -47,7 +47,7 @@ pub(super) struct InternalNodeMetaData {
     pub(super) pivot: Vec<CowBytes>,
 }
 
-#[derive(Debug, Archive, Serialize, Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Archive, Serialize, Deserialize)]
 #[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct InternalNodeData<T> {

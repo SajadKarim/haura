@@ -4,11 +4,11 @@
 //! [super::leaf::LeafNode].
 use crate::{
     cow_bytes::{CowBytes, SlicedCowBytes},
-    data_management::{HasStoragePreference, ObjectReference, impls::ObjRef},
+    data_management::{HasStoragePreference, ObjectReference, impls::ObjRef, ObjectPointer},
     size::{Size, StaticSize},
     storage_pool::AtomicSystemStoragePreference,
     tree::{pivot_key::LocalPivotKey, KeyInfo, MessageAction, PivotKey},
-    AtomicStoragePreference, StoragePreference,
+    AtomicStoragePreference, StoragePreference, compression::CompressionBuilder,
 };
 use parking_lot::RwLock;
 //use serde::{Deserialize, Serialize};
@@ -32,7 +32,7 @@ pub struct NodePointerResolver {
 }
 
 /// A buffer for messages that belong to a child of a tree node.
-#[derive(Debug, Archive, Serialize, Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Archive, Serialize, Deserialize)]
 #[archive(check_bytes)]
 //#[serde(bound(serialize = "N: Serialize", deserialize = "N: Deserialize<'de>"))]
 pub(super) struct ChildBuffer<N: 'static> {
@@ -56,8 +56,7 @@ impl<N: ObjectReference> ArchiveWith<RwLock<N>> for EncodeNodePointer {
         resolver: Self::Resolver,
         out: *mut Self::Archived,
     ) {
-        unreachable!("impl<N> ArchiveWith<RwLock<N>> for EncodeNodePointer");
-        //ArchivedVec::resolve_from_len(resolver.len, pos, resolver.inner, out);
+        ArchivedVec::resolve_from_len(resolver.len, pos, resolver.inner, out);
     }
 }
 
@@ -65,27 +64,29 @@ impl<N: ObjectReference, S: ScratchSpace + Serializer + ?Sized> SerializeWith<Rw
 where <S as Fallible>::Error: std::fmt::Debug {
     fn serialize_with(field: &RwLock<N>, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
 
-        let obj1 = field.read();
-        let obj = obj1.get_unmodified();
+        let mut memory = [0u8; 1024];
+        let mut writer = std::io::BufWriter::new(memory.as_mut());
 
-        match obj {
-            Some(data) => println!("-->{:?}", field.read()),
-            None => println!("None")
-        };
+        match field.read().serialize_unmodified(writer.get_mut()){
+            Ok(_) => println!("1"),
+            Err(e) => println!("1"),
+        }
 
-        println!("-->{:?}", field.read());
-
-        //let mut _ser = rkyv::ser::serializers::AllocSerializer::<0>::default();
-        //_ser.serialize_value(&field.read().into()).unwrap();
-        //let bytes = _ser.into_serializer().into_inner();
-        
-        unreachable!("impl<N> ArchiveWith<RwLock<N>> for EncodeNodePointer 1");
+        Ok(NodePointerResolver {
+            len: writer.buffer().len(),
+            inner: ArchivedVec::serialize_from_slice(writer.buffer(), serializer)?,
+        })
     }
 }
 
-impl<N, D: Fallible + ?Sized> DeserializeWith<Archived<Vec<u8>>, RwLock<N>, D> for EncodeNodePointer {
+impl<N: ObjectReference, D: Fallible + ?Sized> DeserializeWith<Archived<Vec<u8>>, RwLock<N>, D> for EncodeNodePointer {
     fn deserialize_with(field: &Archived<Vec<u8>>, _: &mut D) -> Result<RwLock<N>, D::Error> {
-        unreachable!("impl<N> ArchiveWith<RwLock<N>> for EncodeNodePointer 2");
+        
+        
+        match <N as ObjectReference>::deserialize_and_set_unmodified(field.as_slice()) {
+            Ok(obj) => Ok(RwLock::new(obj)),
+            Err(e) => unimplemented!(".."),
+        }
     }
 }
 
