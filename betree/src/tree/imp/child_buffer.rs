@@ -4,7 +4,7 @@
 //! [super::leaf::LeafNode].
 use crate::{
     cow_bytes::{CowBytes, SlicedCowBytes},
-    data_management::{HasStoragePreference, ObjectReference},
+    data_management::{HasStoragePreference, ObjectReference, impls::ObjRef},
     size::{Size, StaticSize},
     storage_pool::AtomicSystemStoragePreference,
     tree::{pivot_key::LocalPivotKey, KeyInfo, MessageAction, PivotKey},
@@ -46,7 +46,7 @@ pub(super) struct ChildBuffer<N: 'static> {
     pub(super) node_pointer: RwLock<N>,
 }
 
-impl<N> ArchiveWith<RwLock<N>> for EncodeNodePointer {
+impl<N: ObjectReference> ArchiveWith<RwLock<N>> for EncodeNodePointer {
     type Archived = ArchivedVec<u8>;
     type Resolver = NodePointerResolver;
 
@@ -61,13 +61,19 @@ impl<N> ArchiveWith<RwLock<N>> for EncodeNodePointer {
     }
 }
 
-impl<N, S: ScratchSpace + Serializer + ?Sized> SerializeWith<RwLock<N>, S> for EncodeNodePointer 
+impl<N: ObjectReference, S: ScratchSpace + Serializer + ?Sized> SerializeWith<RwLock<N>, S> for EncodeNodePointer 
 where <S as Fallible>::Error: std::fmt::Debug {
     fn serialize_with(field: &RwLock<N>, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
 
-        //field.read().pack();
+        let obj1 = field.read();
+        let obj = obj1.get_unmodified();
 
-        println!("-->{:?}", type_name::<N>());
+        match obj {
+            Some(data) => println!("-->{:?}", field.read()),
+            None => println!("None")
+        };
+
+        println!("-->{:?}", field.read());
 
         //let mut _ser = rkyv::ser::serializers::AllocSerializer::<0>::default();
         //_ser.serialize_value(&field.read().into()).unwrap();
