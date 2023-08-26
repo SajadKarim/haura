@@ -16,7 +16,7 @@ use rkyv::{
 
 /// A checksum to verify data integrity.
 pub trait Checksum:
-serde::Serialize + serde::de::DeserializeOwned + Size + Clone + Send + Sync + fmt::Debug + 'static 
+serde::Serialize + serde::de::DeserializeOwned + Size + Clone + Send + Sync + fmt::Debug + 'static
 {
     /// Builds a new `Checksum`.
     type Builder: Builder<Self>;

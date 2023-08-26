@@ -75,12 +75,16 @@ where
         }
     }
 
-    fn serialize_unmodified<W: std::io::Write>(&self, w : &mut W) -> Result<(), std::io::Error> {
+    fn serialize_unmodified(&self, w : &mut Vec<u8>) -> Result<(), std::io::Error> {
 
         if let ObjRef::Unmodified(ref p, ..) | ObjRef::Incomplete(ref p) = self {
-            
+            println!("00000....> {:?}", p);
+
             bincode::serialize_into(w, p)
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e));
+                    .map_err(|e| {println!("2....>>>>>");
+                std::io::Error::new(std::io::ErrorKind::InvalidData, e)});
+
+                //println!("-------------------------....>{} {:?}", w.as_ref().len(), w);
 
                     /*encoded.push(p.decompression_tag() as u8);
             encoded.extend((p.checksum().fmt(f). as u64).to_ne_bytes());
@@ -93,21 +97,18 @@ where
             //let mut _serializer = rkyv::ser::serializers::AllocSerializer::<0>::default();            
             //_serializer.serialize_value(p).unwrap();
             //let bytes = _serializer.into_serializer().into_inner();
-    
-            Ok(())
-    
-        } else {
-            Ok(())
         }
+
+        Ok(())
     }
 
-    fn deserialize_and_set_unmodified(bytes: & [u8]) -> Result<Self, std::io::Error> {
+    fn deserialize_and_set_unmodified(bytes: &[u8]) -> Result<Self, std::io::Error> {
+        println!("3....>");
 
         match bincode::deserialize::<ObjectPointer<D>>(bytes) {
-            Ok(p) => {
-                Ok(ObjRef::Unmodified(p.clone(), PivotKey::Root(crate::database::DatasetId(0))))
-            },
-            Err(e) => unimplemented!("..."),
+            Ok(p) => {println!("4....>");             Ok(ObjRef::Incomplete(p.clone()))},
+            Err(e) => {println!("5....>");
+            Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e))},
         }
     }
 }

@@ -14,7 +14,7 @@ use crate::{
     database::DatasetId,
     size::{Size, SizeMut, StaticSize},
     storage_pool::DiskOffset,
-    tree::{pivot_key::LocalPivotKey, MessageAction, imp::{leaf::ArchivedLeafNode, internal::ArchivedInternalNode}},
+    tree::{pivot_key::LocalPivotKey, MessageAction, imp::{leaf::ArchivedLeafNode, internal::{ArchivedInternalNode, InternalNodeMetaData, ArchivedInternalNodeMetaData, ArchivedInternalNodeData, InternalNodeData}}},
     StoragePreference,
 };
 use bincode::{deserialize, serialize_into};
@@ -110,52 +110,90 @@ impl<R: ObjectReference + HasStoragePreference> Object<R> for Node<R> {
                 serialize_into(writer, leaf)
                     .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
             },*/
-            Internal(ref internal) => {
+            /*Internal(ref internal) => {
                 writer.write_all(&[0xFFu8, 0xFF, 0xFF, 0xFF] as &[u8])?;
                 serialize_into(writer, internal)
                     .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
-            }
-            /*Internal(ref internal) => {
-                println!("..................... try packing internal node");
+            },*/
+            Internal(ref internal) => {
 
+                // println!("----1");
+                // //
+                // let mut ser = rkyv::ser::serializers::AllocSerializer::<0>::default();
+                // println!("----2");
+                // ser.serialize_value(&internal.data).unwrap();
+                // println!("----3");
+                // let b = ser.into_serializer().into_inner();
+                // println!("----4");
+                // writer.write(b.as_ref()).map(|length| {
+                //     println!("----5");
+                //     let archivedleafnode: &ArchivedInternalNodeData<ChildBuffer<_>> = rkyv::check_archived_root::<InternalNodeData<ChildBuffer<crate::data_management::impls::ObjRef<crate::data_management::ObjectPointer<crate::checksum::XxHash>>>>>(&b).unwrap();
+
+                //     let archivedleafnode: &ArchivedInternalNodeData<ChildBuffer<_>> = unsafe { archived_root::<InternalNodeData<ChildBuffer<crate::data_management::impls::ObjRef<crate::data_management::ObjectPointer<crate::checksum::XxHash>>>>>(&b) };
+
+                //     let result: Result<InternalNodeData<ChildBuffer<_>>, _> = archivedleafnode.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new());            
+        
+                //     unimplemented!("xxxxxx successful");
+                //     ()
+                // }).map_err(|e| {
+                //     println!("..........failed to packed");
+                //     unimplemented!("xxxxxx000");
+                //     io::Error::new(io::ErrorKind::InvalidData, e)
+                // });
+                //
+
+
+                println!("..................... try packing internal node");
+                writer.write_all(&[0xFFu8, 0xFF, 0xFF, 0xFF] as &[u8])?;
                 let mut serializer = rkyv::ser::serializers::AllocSerializer::<0>::default();
                 serializer.serialize_value(internal).unwrap();
+                
+
                 let bytes = serializer.into_serializer().into_inner();
                 writer.write(bytes.as_ref()).map(|length| {
                     println!("..........bytes packed {}",length); 
-                    ()                
+
+
+                    let archivedleafnode: &ArchivedInternalNode<ChildBuffer<_>> = rkyv::check_archived_root::<InternalNode<ChildBuffer<crate::data_management::impls::ObjRef<crate::data_management::ObjectPointer<crate::checksum::XxHash>>>>>(&bytes).unwrap();
+
+                    panic!("..........bytes packed... {}",length); 
+
+                    ()
                 }).map_err(|e| {
-                    println!("..........failed to packed"); 
+                    println!("..........failed to packed");
                     io::Error::new(io::ErrorKind::InvalidData, e)
                 })
-            },*/
+            },
         }
     }
 
     fn unpack_at(_offset: DiskOffset, d_id: DatasetId, data: Box<[u8]>) -> Result<Self, io::Error> {
         if data[..4] == [0xFFu8, 0xFF, 0xFF, 0xFF] {
-            /*println!("..................... unpack internal node");
+            println!("..................... unpack internal node {}", data.len());
+            //panic!("..................... unpack internal node");
 
-            //let archivedleafnode: &ArchivedInternalNode<ChildBuffer<Node<_>>> = rkyv::check_archived_root::<InternalNode<ChildBuffer<Node<_>>>>(&data[4..]).unwrap();
+            //let archivedleafnode: &ArchivedInternalNode<_> = rkyv::check_archived_root::<InternalNode<_>>(&data[4..]).unwrap();
+            let archivedleafnode: &ArchivedInternalNode<ChildBuffer<_>> = rkyv::check_archived_root::<InternalNode<ChildBuffer<crate::data_management::impls::ObjRef<crate::data_management::ObjectPointer<crate::checksum::XxHash>>>>>(&data[4..]).unwrap();
 
-            let archivedleafnode = unsafe { archived_root::<InternalNode<_>>(&data[4..]) };
-            
-            let result: Result<InternalNode<_>, _> = archivedleafnode.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new());
-            
+
+            let archivedleafnode = unsafe { archived_root::<InternalNode<ChildBuffer<_>>>(&data[4..]) };
+
+            let result: Result<InternalNode<_>, _> = archivedleafnode.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new());            
+            panic!("1....>");
             
             match result {          
                 Ok(internal) => {
-                    println!(".........internal.....data len: {}, entries_size: {}, len: {}", data.len(), internal.meta_data.entries_size, internal.data.children.len());
+                    //println!(".........internal.....data len: {}, entries_size: {}, len: {}", data.len(), internal.meta_data.entries_size, internal.data.children.len());
 
                     Ok(Node(Internal(internal.complete_object_refs(d_id))))
                 },
                 Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
-            }*/
+            }
 
-            match deserialize::<InternalNode<_>>(&data[4..]) {
+            /*match deserialize::<InternalNode<_>>(&data[4..]) {
                 Ok(internal) => Ok(Node(Internal(internal.complete_object_refs(d_id)))),
                 Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
-            }
+            }*/
         } else {
            
             // storage_preference is not preserved for packed leaves,
