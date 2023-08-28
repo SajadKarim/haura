@@ -239,7 +239,7 @@ where
 
     fn get_node(&self, np_ref: &RwLock<X::ObjectRef>) -> Result<X::CacheValueRef, Error> {
         if let Some(node) = self.dml.try_get(&np_ref.read()) {
-            println!("..in cache");            
+            //println!("..in cache");            
             return Ok(node);
         }
         println!("..from disk");

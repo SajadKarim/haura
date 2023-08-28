@@ -100,6 +100,19 @@ impl<R: ObjectReference + HasStoragePreference> Object<R> for Node<R> {
                 let bytes = serializer.into_serializer().into_inner();
                 writer.write(bytes.as_ref()).map(|length| {                    
                     println!("..........bytes packed {}",length); 
+
+//
+// println!("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++1");
+//  //let archivedleafnode = rkyv::check_archived_root::<LeafNode>(&data[..]).unwrap();
+
+//  let archivedleafnode: &ArchivedLeafNode = unsafe { archived_root::<LeafNode>(bytes.as_ref()) };
+            
+//  let result: Result<LeafNode, _> = archivedleafnode.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new());
+//  println!("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++2");
+
+//
+
+
                     ()
                 }).map_err(|e| {
                     println!("..........failed to packed"); 
@@ -143,26 +156,75 @@ impl<R: ObjectReference + HasStoragePreference> Object<R> for Node<R> {
                 //
 
 
+                //println!("=11111111111111={:?}", internal);
                 println!("..................... try packing internal node");
                 writer.write_all(&[0xFFu8, 0xFF, 0xFF, 0xFF] as &[u8])?;
-                let mut serializer = rkyv::ser::serializers::AllocSerializer::<0>::default();
+               let mut serializer = rkyv::ser::serializers::AllocSerializer::<0>::default();
                 serializer.serialize_value(internal).unwrap();
                 
 
                 let bytes = serializer.into_serializer().into_inner();
-                writer.write(bytes.as_ref()).map(|length| {
-                    println!("..........bytes packed {}",length); 
+                println!("..................... internal node bytes packed {} ", bytes.len());
 
+                writer.write_all(bytes.as_ref())?;
 
-                    let archivedleafnode: &ArchivedInternalNode<ChildBuffer<_>> = rkyv::check_archived_root::<InternalNode<ChildBuffer<crate::data_management::impls::ObjRef<crate::data_management::ObjectPointer<crate::checksum::XxHash>>>>>(&bytes).unwrap();
+                println!(">>>>>>>>>>>>>>>>>>>>..");
+                //if( bytes.len() == 14188)
+                {
+                        println!(">>>>>>>>>>>>>>>>>>>>");
 
-                    panic!("..........bytes packed... {}",length); 
+                    //
+                    // println!("............trying NodeData");
+                    // let mut s1 = rkyv::ser::serializers::AllocSerializer::<0>::default();
+                    // s1.serialize_value(&internal.meta_data).unwrap();
+                    // let b1 = s1.into_serializer().into_inner();
+                    // writer.write_all(b1.as_ref())?;
 
-                    ()
-                }).map_err(|e| {
-                    println!("..........failed to packed");
-                    io::Error::new(io::ErrorKind::InvalidData, e)
-                })
+                    // let a1: &ArchivedInternalNodeMetaData = rkyv::check_archived_root::<InternalNodeMetaData>(&b1).unwrap();
+                    // let a1: &ArchivedInternalNodeMetaData = unsafe { archived_root::<InternalNodeMetaData>(&b1) };    
+                    // let r1: Result<InternalNodeMetaData, _> = a1.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new());            
+                    // //let r1: Result<ArchivedInternalNodeMetaData, _> = a1.deserialize(&mut rkyv::Infallible);
+                    
+                    // //panic!("............done NodeData");
+                    // /// 
+
+                    // ///
+                    //  println!("............trying NodeDataMeta");
+                    //  let mut s2 = rkyv::ser::serializers::AllocSerializer::<0>::default();
+                    //  s2.serialize_value(&internal.data).unwrap();
+                    //  let b2 = s2.into_serializer().into_inner();
+                    //  writer.write_all(b2.as_ref())?;
+
+                    //  let a2: &ArchivedInternalNodeData<ChildBuffer<R>> = rkyv::check_archived_root::<InternalNodeData<ChildBuffer<R>>>(&b2).unwrap();
+                    //  let a2: &ArchivedInternalNodeData<ChildBuffer<_>> = unsafe { archived_root::<InternalNodeData<ChildBuffer<crate::data_management::impls::ObjRef<crate::data_management::ObjectPointer<crate::checksum::XxHash>>>>>(&b2) };    
+                    //  let result: Result<InternalNodeData<ChildBuffer<_>>, _> = a2.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new());            
+                    //  println!("............done NodeDataMeta");
+
+                    /*
+                        let archivedleafnode: &ArchivedInternalNode<ChildBuffer<R>> = rkyv::check_archived_root::<InternalNode<ChildBuffer<R>>>(&bytes).unwrap();
+
+                     let archivedleafnode: &ArchivedInternalNode<ChildBuffer<_>> = unsafe { archived_root::<InternalNode<ChildBuffer<crate::data_management::impls::ObjRef<crate::data_management::ObjectPointer<crate::checksum::XxHash>>>>>(&bytes) };
+    
+                     let result: Result<InternalNode<ChildBuffer<_>>, _> = archivedleafnode.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new());            
+            
+
+                    println!("undo rkyv+++++");
+                    */
+                    //panic!("undo rkyv...");
+ 
+                }
+               
+                //let archivedleafnode: &ArchivedInternalNode<ChildBuffer<_>> = rkyv::check_archived_root::<InternalNode<ChildBuffer<crate::data_management::impls::ObjRef<crate::data_management::ObjectPointer<crate::checksum::XxHash>>>>>(&bytes[4..]).unwrap();
+                //let result: Result<InternalNode<_>, _> = archivedleafnode.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new());            
+
+                //println!("=2222222222222={:?}", result);
+
+                //panic!("..........bytes packed... {}",1); 
+                
+                Ok(())
+
+                
+
             },
         }
     }
@@ -172,23 +234,30 @@ impl<R: ObjectReference + HasStoragePreference> Object<R> for Node<R> {
             println!("..................... unpack internal node {}", data.len());
             //panic!("..................... unpack internal node");
 
+
+                        //let archivedleafnode = rkyv::check_archived_root::<LeafNode>(&data[4..14188]).unwrap();
+
+                        //let _: Result<LeafNode, _> = archivedleafnode.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new());
+
+                        
             //let archivedleafnode: &ArchivedInternalNode<_> = rkyv::check_archived_root::<InternalNode<_>>(&data[4..]).unwrap();
+
             let archivedleafnode: &ArchivedInternalNode<ChildBuffer<_>> = rkyv::check_archived_root::<InternalNode<ChildBuffer<crate::data_management::impls::ObjRef<crate::data_management::ObjectPointer<crate::checksum::XxHash>>>>>(&data[4..]).unwrap();
 
+            panic!("12....>");
+            let archivedleafnode: &ArchivedInternalNode<ChildBuffer<_>>  = unsafe { archived_root::<InternalNode<ChildBuffer<crate::data_management::impls::ObjRef<crate::data_management::ObjectPointer<crate::checksum::XxHash>>>>>(&data[4..14192]) };
 
-            let archivedleafnode = unsafe { archived_root::<InternalNode<ChildBuffer<_>>>(&data[4..]) };
-
-            let result: Result<InternalNode<_>, _> = archivedleafnode.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new());            
+            let result: Result<InternalNode<ChildBuffer<crate::data_management::impls::ObjRef<crate::data_management::ObjectPointer<crate::checksum::XxHash>>>>, _> = archivedleafnode.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new());            
             panic!("1....>");
-            
-            match result {          
+            unimplemented!("");
+            /*match result {          
                 Ok(internal) => {
                     //println!(".........internal.....data len: {}, entries_size: {}, len: {}", data.len(), internal.meta_data.entries_size, internal.data.children.len());
 
                     Ok(Node(Internal(internal.complete_object_refs(d_id))))
                 },
                 Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
-            }
+            }*/
 
             /*match deserialize::<InternalNode<_>>(&data[4..]) {
                 Ok(internal) => Ok(Node(Internal(internal.complete_object_refs(d_id)))),

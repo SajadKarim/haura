@@ -34,6 +34,13 @@ pub(super) struct InternalNode<T> {
     //data_offset: u32,
 }
 
+pub struct ABC;
+pub struct ABCResolver {
+    len: usize,
+    inner: VecResolver,
+}
+
+
 #[derive(serde::Serialize, serde::Deserialize, Debug, Archive, Serialize, Deserialize)]
 #[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
@@ -46,6 +53,43 @@ pub(super) struct InternalNodeMetaData {
     pub pref: AtomicStoragePreference,
     pub(super) pivot: Vec<CowBytes>,
 }
+
+// impl ArchiveWith<Vec<CowBytes>> for ABC {
+//     type Archived = ArchivedVec<u8>;
+//     type Resolver = ABCResolver;
+
+//     unsafe fn resolve_with(
+//         _: &Vec<CowBytes>,
+//         pos: usize,
+//         resolver: Self::Resolver,
+//         out: *mut Self::Archived,
+//     ) {
+//         //println!("....1");
+//         ArchivedVec::resolve_from_len(resolver.len, pos, resolver.inner, out);
+//     }
+// }
+
+// impl<D: > rkyv::Deserialize<ArchivedInternalNodeMetaData, rkyv::de::deserializers::SharedDeserializeMap> for ArchivedInternalNodeMetaData
+// {
+//     fn deserialize(&self, _: &mut rkyv::de::deserializers::SharedDeserializeMap) -> std::result::Result<ArchivedInternalNodeMetaData, <D as Fallible>::Error> 
+//     { 
+//         unimplemented!("");
+//     }
+// }
+
+// impl<S: ScratchSpace + Serializer + ?Sized> SerializeWith<Vec<CowBytes>, S> for ABC 
+// where <S as Fallible>::Error: std::fmt::Debug {
+//     fn serialize_with(field: &Vec<CowBytes>, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
+// unimplemented!("");
+//     }
+// }
+
+// impl<D: Fallible + ?Sized> DeserializeWith<Archived<Vec<u8>>, Vec<CowBytes>, D> for ABC {
+//     fn deserialize_with(field: &Archived<Vec<u8>>, _: &mut D) -> Result<Vec<CowBytes>, D::Error> {
+//         unimplemented!("");
+//     }
+// }
+
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Archive, Serialize, Deserialize)]
 #[archive(check_bytes)]

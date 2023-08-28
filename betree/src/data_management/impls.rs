@@ -78,7 +78,7 @@ where
     fn serialize_unmodified(&self, w : &mut Vec<u8>) -> Result<(), std::io::Error> {
 
         if let ObjRef::Unmodified(ref p, ..) | ObjRef::Incomplete(ref p) = self {
-            println!("00000....> {:?}", p);
+            //println!("00000....> {:?}", p);
 
             bincode::serialize_into(w, p)
                     .map_err(|e| {println!("2....>>>>>");
@@ -103,7 +103,7 @@ where
     }
 
     fn deserialize_and_set_unmodified(bytes: &[u8]) -> Result<Self, std::io::Error> {
-        println!("3....>");
+        //panic!("3....>");
 
         match bincode::deserialize::<ObjectPointer<D>>(bytes) {
             Ok(p) => {println!("4....>");             Ok(ObjRef::Incomplete(p.clone()))},

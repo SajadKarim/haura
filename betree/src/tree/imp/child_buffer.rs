@@ -40,6 +40,7 @@ pub(super) struct ChildBuffer<N: 'static> {
     //#[serde(skip)]
     pub(super) system_storage_preference: AtomicSystemStoragePreference,
     buffer_entries_size: usize,
+    #[with(rkyv::with::AsVec)]
     pub(super) buffer: BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)>,
     //#[serde(with = "ser_np")]
     #[with(EncodeNodePointer)]
@@ -56,7 +57,7 @@ impl<N: ObjectReference> ArchiveWith<RwLock<N>> for EncodeNodePointer {
         resolver: Self::Resolver,
         out: *mut Self::Archived,
     ) {
-        println!("....1");
+        //println!("....1");
         ArchivedVec::resolve_from_len(resolver.len, pos, resolver.inner, out);
     }
 }
@@ -64,7 +65,7 @@ impl<N: ObjectReference> ArchiveWith<RwLock<N>> for EncodeNodePointer {
 impl<N: ObjectReference, S: ScratchSpace + Serializer + ?Sized> SerializeWith<RwLock<N>, S> for EncodeNodePointer 
 where <S as Fallible>::Error: std::fmt::Debug {
     fn serialize_with(field: &RwLock<N>, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
-println!("....2");
+//println!("....2");
         let mut serialized_data = Vec::new();
 
         match field.read().serialize_unmodified(&mut serialized_data){
@@ -72,7 +73,7 @@ println!("....2");
             Err(e) => panic!(".. failed to serialize childbuffer's node_pointer"),
         };
 
-        println!("....3::: {}, {:?}", serialized_data.len(), serialized_data);
+        //println!("....3::: {}, {:?}", serialized_data.len(), serialized_data);
         Ok(NodePointerResolver {
             len: serialized_data.len(),
             inner: ArchivedVec::serialize_from_slice(serialized_data.as_slice(), serializer)?,
@@ -82,10 +83,10 @@ println!("....2");
 
 impl<N: ObjectReference, D: Fallible + ?Sized> DeserializeWith<Archived<Vec<u8>>, RwLock<N>, D> for EncodeNodePointer {
     fn deserialize_with(field: &Archived<Vec<u8>>, _: &mut D) -> Result<RwLock<N>, D::Error> {
-        println!("2....>");
+        //panic!("2....>");
 
         match <N as ObjectReference>::deserialize_and_set_unmodified(field.as_slice()) {
-            Ok(obj) => Ok(RwLock::new(obj)),
+            Ok(obj) => { println!("------> {:?}", obj); Ok(RwLock::new(obj))} ,
             Err(e) => panic!(".. failed to deserialize childbuffer's node_pointer"),
         }
     }
