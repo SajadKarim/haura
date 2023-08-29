@@ -225,15 +225,15 @@ where
         let mut decompression_state = op.decompression_tag().new_decompression()?;
         let offset = op.offset();
         let generation = op.generation();
-        println!("Using compression {:?}", op.decompression_tag());
+
         let compressed_data = self
             .pool
             .read(op.size(), op.offset(), op.checksum().clone())?;
         let len = compressed_data.len();
-        println!(">>------------- uncompressed object size is {len} bytes {:?}", compressed_data);
+
         let object: Node<ObjRef<ObjectPointer<SPL::Checksum>>> = {
             let data = decompression_state.decompress(&compressed_data)?;
-            println!(">>------------- decompressed len {}", data.len());
+
             Object::unpack_at(op.offset(), op.info(), data)?
         };
         let key = ObjectKey::Unmodified { offset, generation };
@@ -371,7 +371,7 @@ where
         }
 
         debug!("Estimated object size is {object_size} bytes");
-        println!("Using compression {:?}", &self.default_compression);
+
         let generation = self.handler.current_generation();
         // Use storage hints if available
         if let Some(pref) = self.storage_hints.lock().remove(&pivot_key) {
@@ -395,7 +395,7 @@ where
 
         assert!(compressed_data.len() <= u32::max_value() as usize);
         let size = compressed_data.len();
-        println!(">>------------- compressed object size is {size} bytes {:?}", compressed_data);
+
         let size = Block(((size + BLOCK_SIZE - 1) / BLOCK_SIZE) as u32);
         assert!(size.to_bytes() as usize >= compressed_data.len());
         let offset = self.allocate(storage_class, size)?;
