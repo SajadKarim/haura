@@ -938,6 +938,15 @@ mod tests {
                 PK.as_ref().unwrap()
             }
         }
+
+
+    fn serialize_unmodified(&self, w : &mut Vec<u8>) -> Result<(), std::io::Error> {
+        unimplemented!("TODO...");
+    }
+
+    fn deserialize_and_set_unmodified(bytes: &[u8]) -> Result<Self, std::io::Error> {
+        unimplemented!("TODO...");
+    }
     }
 
     #[quickcheck]

@@ -18,6 +18,7 @@ use crate::{
     StoragePreference,
 };
 use bincode::{deserialize, serialize_into};
+use bitvec::macros::internal::funty::Numeric;
 use parking_lot::RwLock;
 use std::{
     borrow::Borrow,
@@ -166,9 +167,10 @@ impl<R: ObjectReference + HasStoragePreference> Object<R> for Node<R> {
                 let bytes = serializer.into_serializer().into_inner();
                 println!("..................... internal node bytes packed {} ", bytes.len());
 
+                writer.write_all(bytes.len().to_be_bytes().as_ref())?;
                 writer.write_all(bytes.as_ref())?;
 
-                println!(">>>>>>>>>>>>>>>>>>>>..");
+                println!("====>>>> {}, {}, {}, {}, {:?}", 0xFFu8, 0xFF, 0xFF, 0xFF, bytes.len().to_be_bytes());
                 //if( bytes.len() == 14188)
                 {
                         println!(">>>>>>>>>>>>>>>>>>>>");
@@ -231,6 +233,10 @@ impl<R: ObjectReference + HasStoragePreference> Object<R> for Node<R> {
 
     fn unpack_at(_offset: DiskOffset, d_id: DatasetId, data: Box<[u8]>) -> Result<Self, io::Error> {
         if data[..4] == [0xFFu8, 0xFF, 0xFF, 0xFF] {
+
+            let len: usize = usize::from_be_bytes(data[4..12].try_into().unwrap());
+            println!("====>>>> {:?}, {:?}, {}", &data[0..4], &data[4..12], len);
+
             println!("..................... unpack internal node {}", data.len());
             //panic!("..................... unpack internal node");
 
@@ -242,22 +248,22 @@ impl<R: ObjectReference + HasStoragePreference> Object<R> for Node<R> {
                         
             //let archivedleafnode: &ArchivedInternalNode<_> = rkyv::check_archived_root::<InternalNode<_>>(&data[4..]).unwrap();
 
-            let archivedleafnode: &ArchivedInternalNode<ChildBuffer<_>> = rkyv::check_archived_root::<InternalNode<ChildBuffer<crate::data_management::impls::ObjRef<crate::data_management::ObjectPointer<crate::checksum::XxHash>>>>>(&data[4..]).unwrap();
+            let archivedleafnode: &ArchivedInternalNode<ChildBuffer<_>> = rkyv::check_archived_root::<InternalNode<ChildBuffer<R>>>(&data[12..len+12]).unwrap();
 
-            panic!("12....>");
-            let archivedleafnode: &ArchivedInternalNode<ChildBuffer<_>>  = unsafe { archived_root::<InternalNode<ChildBuffer<crate::data_management::impls::ObjRef<crate::data_management::ObjectPointer<crate::checksum::XxHash>>>>>(&data[4..14192]) };
+            //panic!("12....>");
+            let archivedleafnode: &ArchivedInternalNode<ChildBuffer<_>>  = unsafe { archived_root::<InternalNode<ChildBuffer<R>>>(&data[12..len+12]) };
 
-            let result: Result<InternalNode<ChildBuffer<crate::data_management::impls::ObjRef<crate::data_management::ObjectPointer<crate::checksum::XxHash>>>>, _> = archivedleafnode.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new());            
-            panic!("1....>");
-            unimplemented!("");
-            /*match result {          
+            let result: Result<InternalNode<ChildBuffer<_>>, _> = archivedleafnode.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new());            
+            //panic!("1....>");
+            //unimplemented!("");
+            match result {          
                 Ok(internal) => {
                     //println!(".........internal.....data len: {}, entries_size: {}, len: {}", data.len(), internal.meta_data.entries_size, internal.data.children.len());
 
                     Ok(Node(Internal(internal.complete_object_refs(d_id))))
                 },
                 Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
-            }*/
+            }
 
             /*match deserialize::<InternalNode<_>>(&data[4..]) {
                 Ok(internal) => Ok(Node(Internal(internal.complete_object_refs(d_id)))),

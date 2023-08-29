@@ -57,7 +57,6 @@ impl<N: ObjectReference> ArchiveWith<RwLock<N>> for EncodeNodePointer {
         resolver: Self::Resolver,
         out: *mut Self::Archived,
     ) {
-        //println!("....1");
         ArchivedVec::resolve_from_len(resolver.len, pos, resolver.inner, out);
     }
 }
@@ -65,15 +64,13 @@ impl<N: ObjectReference> ArchiveWith<RwLock<N>> for EncodeNodePointer {
 impl<N: ObjectReference, S: ScratchSpace + Serializer + ?Sized> SerializeWith<RwLock<N>, S> for EncodeNodePointer 
 where <S as Fallible>::Error: std::fmt::Debug {
     fn serialize_with(field: &RwLock<N>, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
-//println!("....2");
         let mut serialized_data = Vec::new();
 
         match field.read().serialize_unmodified(&mut serialized_data){
-            Ok(_) => println!("....successfully written childbuffer's node_pointer"),
-            Err(e) => panic!(".. failed to serialize childbuffer's node_pointer"),
+            Ok(data) => debug!("Successfully serialized childbuffer's node_pointer"),
+            Err(e) => panic!("Failed to serialize childbuffer's node_pointer"),
         };
 
-        //println!("....3::: {}, {:?}", serialized_data.len(), serialized_data);
         Ok(NodePointerResolver {
             len: serialized_data.len(),
             inner: ArchivedVec::serialize_from_slice(serialized_data.as_slice(), serializer)?,
@@ -83,11 +80,9 @@ where <S as Fallible>::Error: std::fmt::Debug {
 
 impl<N: ObjectReference, D: Fallible + ?Sized> DeserializeWith<Archived<Vec<u8>>, RwLock<N>, D> for EncodeNodePointer {
     fn deserialize_with(field: &Archived<Vec<u8>>, _: &mut D) -> Result<RwLock<N>, D::Error> {
-        //panic!("2....>");
-
         match <N as ObjectReference>::deserialize_and_set_unmodified(field.as_slice()) {
-            Ok(obj) => { println!("------> {:?}", obj); Ok(RwLock::new(obj))} ,
-            Err(e) => panic!(".. failed to deserialize childbuffer's node_pointer"),
+            Ok(obj) => Ok(RwLock::new(obj)) ,
+            Err(e) => panic!("Failed to deserialize childbuffer's node_pointer"),
         }
     }
 }
