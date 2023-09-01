@@ -3,9 +3,10 @@ use crate::{
     cow_bytes::{CowBytes, SlicedCowBytes},
     data_management::HasStoragePreference,
     size::Size,
-    storage_pool::AtomicSystemStoragePreference,
+    storage_pool::{AtomicSystemStoragePreference, DiskOffset, StoragePoolLayer},
     tree::{imp::packed, pivot_key::LocalPivotKey, KeyInfo, MessageAction},
     AtomicStoragePreference, StoragePreference,
+    database::RootSpu,
 };
 use std::{borrow::Borrow, collections::BTreeMap, iter::FromIterator};
 
@@ -20,13 +21,43 @@ use rkyv::{
     Archive, Archived, Deserialize, Fallible, Infallible, Serialize,
 };
 
+use extend::ext;
+
+#[ext]
+impl<T> Option<T> {
+    fn as_mut_lazy(&mut self) -> &mut T {
+        match *self {
+            Some(ref mut x) => x,
+            None => {
+                panic!("TODO... request storagepool for the data..")
+            },
+        }
+    }
+
+    fn as_ref_lazy(&self) -> &T {
+        match *self {
+            Some(ref x) => x,
+            None => {
+                panic!("TODO... request storagepool for the data..")
+            },
+        }
+    }
+}
+
 /// A leaf node of the tree holds pairs of keys values which are plain data.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Archive, Serialize, Deserialize)]
-#[archive(check_bytes)]
+#[derive(Clone)]
+//#[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
-pub(super) struct LeafNode {
+pub(super) struct LeafNode/*<S> 
+where S: StoragePoolLayer + 'static*/
+{ 
+    //#[with(Skip)]
+    pub pool: Option<RootSpu>,
     pub meta_data: LeafNodeMetaData,
-    pub data: LeafNodeData,
+    pub data: Option<LeafNodeData>,
+    //pub data: LeafNodeData,
+    pub meta_data_size: usize,
+    pub data_size: usize
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Archive, Serialize, Deserialize)]
@@ -42,9 +73,16 @@ pub(super) struct LeafNodeMetaData {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Archive, Serialize, Deserialize)]
 #[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
-pub(super) struct LeafNodeData {
+
+pub struct LeafNodeData {
     #[with(rkyv::with::AsVec)]
     pub entries: BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)>,
+}
+
+impl std::fmt::Debug for LeafNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "sdf")
+    }
 }
 
 /// Case-dependent outcome of a rebalance operation.
@@ -59,7 +97,9 @@ pub(super) enum FillUpResult {
     },
 }
 
-impl Size for LeafNode {
+impl Size for LeafNode/*<S> 
+where S: StoragePoolLayer + 'static*/
+{
     fn size(&self) -> usize {
         packed::HEADER_FIXED_LEN + self.meta_data.entries_size
     }
@@ -68,6 +108,7 @@ impl Size for LeafNode {
         Some(
             packed::HEADER_FIXED_LEN
                 + self.data
+                    .as_ref_lazy()
                     .entries
                     .iter()
                     .map(|(key, (_keyinfo, value))| packed::ENTRY_LEN + key.len() + value.len())
@@ -76,7 +117,9 @@ impl Size for LeafNode {
     }
 }
 
-impl HasStoragePreference for LeafNode {
+impl HasStoragePreference for LeafNode/*<S>
+where S: StoragePoolLayer + 'static*/
+{
     fn current_preference(&self) -> Option<StoragePreference> {
         self.meta_data.storage_preference
             .as_option()
@@ -86,7 +129,7 @@ impl HasStoragePreference for LeafNode {
     fn recalculate(&self) -> StoragePreference {
         let mut pref = StoragePreference::NONE;
 
-        for (keyinfo, _v) in self.data.entries.values() {
+        for (keyinfo, _v) in self.data.as_ref_lazy().entries.values() {
             pref.upgrade(keyinfo.storage_preference);
         }
 
@@ -103,7 +146,9 @@ impl HasStoragePreference for LeafNode {
     }
 }
 
-impl<'a> FromIterator<(&'a [u8], (KeyInfo, SlicedCowBytes))> for LeafNode {
+impl<'a> FromIterator<(&'a [u8], (KeyInfo, SlicedCowBytes))> for LeafNode/*<S> 
+where S: StoragePoolLayer + 'static*/
+{
     fn from_iter<T>(iter: T) -> Self
     where
         T: IntoIterator<Item = (&'a [u8], (KeyInfo, SlicedCowBytes))>,
@@ -146,48 +191,73 @@ impl<'a> FromIterator<(&'a [u8], (KeyInfo, SlicedCowBytes))> for LeafNode {
         }
 
         LeafNode {
+            pool: None,
             meta_data: LeafNodeMetaData { 
                 storage_preference: AtomicStoragePreference::known(storage_pref),
                 system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
                 entries_size
             },
-            data: LeafNodeData { 
+            data: Some(LeafNodeData { 
                 entries: entries
-            }
+            }),
+            meta_data_size: 0,
+            data_size: 0
         }
     }
 }
 
-impl LeafNode {
+impl LeafNode/*<S>
+where S: StoragePoolLayer + 'static*/
+{
     /// Constructs a new, empty `LeafNode`.
     pub fn new() -> Self {
         LeafNode {
+            pool: None,
             meta_data: LeafNodeMetaData { 
                 storage_preference: AtomicStoragePreference::known(StoragePreference::NONE),
                 system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
                 entries_size: 0,
             },
-            data: LeafNodeData { 
+            data: Some(LeafNodeData { 
                 entries: BTreeMap::new()
-            }
+            }),
+            meta_data_size: 0,
+            data_size: 0
         }
+    }
+
+    // pub fn new_with_params(meta_data: LeafNodeMetaData, meta_data_size: usize, data_size: usize) -> Self {
+    //     LeafNode {
+    //         meta_data: meta_data,
+    //         data: None,
+    //         meta_data_size: meta_data_size,
+    //         data_size: data_size 
+    //     }
+    // }
+
+    pub(in crate::tree) fn get_data(&self) -> &LeafNodeData {
+        &self.data.as_ref_lazy()
+    }
+
+    pub(in crate::tree) fn set_data(&mut self, obj: LeafNodeData) {
+        self.data = Some(obj);
     }
 
     /// Returns the value for the given key.
     pub fn get(&self, key: &[u8]) -> Option<SlicedCowBytes> {
-        self.data.entries.get(key).map(|(_info, data)| data).cloned()
+        self.data.as_ref_lazy().entries.get(key).map(|(_info, data)| data).cloned()
     }
 
     pub(in crate::tree) fn get_with_info(&self, key: &[u8]) -> Option<(KeyInfo, SlicedCowBytes)> {
-        self.data.entries.get(key).cloned()
+        self.data.as_ref_lazy().entries.get(key).cloned()
     }
 
     pub(in crate::tree) fn entries(&self) -> &BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)> {
-        &self.data.entries
+        &self.data.as_ref_lazy().entries
     }
 
     pub(in crate::tree) fn entry_info(&mut self, key: &[u8]) -> Option<&mut KeyInfo> {
-        self.data.entries.get_mut(key).map(|e| &mut e.0)
+        self.data.as_mut_lazy().entries.get_mut(key).map(|e| &mut e.0)
     }
 
     /// Split the node and transfer entries to a given other node `right_sibling`.
@@ -205,7 +275,7 @@ impl LeafNode {
         let mut sibling_size = 0;
         let mut sibling_pref = StoragePreference::NONE;
         let mut split_key = None;
-        for (k, (keyinfo, v)) in self.data.entries.iter().rev() {
+        for (k, (keyinfo, v)) in self.data.as_ref_lazy().entries.iter().rev() {
             sibling_size += packed::ENTRY_LEN + k.len() + v.len();
             sibling_pref.upgrade(keyinfo.storage_preference);
 
@@ -216,7 +286,7 @@ impl LeafNode {
         }
         let split_key = split_key.unwrap();
 
-        right_sibling.data.entries = self.data.entries.split_off(&split_key);
+        right_sibling.data.as_mut_lazy().entries = self.data.as_mut_lazy().entries.split_off(&split_key);
         self.meta_data.entries_size -= sibling_size;
         right_sibling.meta_data.entries_size = sibling_size;
         right_sibling.meta_data.storage_preference.set(sibling_pref);
@@ -226,7 +296,7 @@ impl LeafNode {
 
         let size_delta = -(sibling_size as isize);
 
-        let pivot_key = self.data.entries.keys().next_back().cloned().unwrap();
+        let pivot_key = self.data.as_ref_lazy().entries.keys().next_back().cloned().unwrap();
         (pivot_key, size_delta)
     }
 
@@ -235,7 +305,7 @@ impl LeafNode {
         K: Borrow<[u8]>,
     {
         self.meta_data.storage_preference.invalidate();
-        self.data.entries.get_mut(key.borrow()).map(|entry| {
+        self.data.as_mut_lazy().entries.get_mut(key.borrow()).map(|entry| {
             entry.0.storage_preference = pref;
             entry.0.clone()
         })
@@ -264,7 +334,7 @@ impl LeafNode {
             self.meta_data.storage_preference.upgrade(keyinfo.storage_preference);
 
             if let Some((old_info, old_data)) =
-                self.data.entries.insert(key.into(), (keyinfo.clone(), data))
+                self.data.as_mut_lazy().entries.insert(key.into(), (keyinfo.clone(), data))
             {
                 // There was a previous value in entries, which was now replaced
                 self.meta_data.entries_size -= old_data.len();
@@ -278,7 +348,7 @@ impl LeafNode {
                 self.meta_data.entries_size += packed::ENTRY_LEN;
                 self.meta_data.entries_size += key_size;
             }
-        } else if let Some((old_info, old_data)) = self.data.entries.remove(key.borrow()) {
+        } else if let Some((old_info, old_data)) = self.data.as_mut_lazy().entries.remove(key.borrow()) {
             // The value was removed by msg, this may be a downgrade opportunity.
             // The preference of the removed entry can't be stricter than the current node
             // preference, by invariant. That leaves "less strict" and "as strict" as the
@@ -324,6 +394,7 @@ impl LeafNode {
     ) -> (Self, CowBytes, isize, LocalPivotKey) {
         // assert!(self.size() > S::MAX);
         let mut right_sibling = LeafNode {
+            pool: None,
             // During a split, preference can't be inherited because the new subset of entries
             // might be a subset with a lower maximal preference.
             meta_data: LeafNodeMetaData { 
@@ -331,9 +402,11 @@ impl LeafNode {
                 system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
                 entries_size: 0
             },
-            data: LeafNodeData { 
+            data: Some(LeafNodeData { 
                 entries: BTreeMap::new()
-            }
+            }),
+            meta_data_size: 0,
+            data_size: 0
         };
 
         // This adjusts sibling's size and pref according to its new entries
@@ -351,7 +424,7 @@ impl LeafNode {
     /// the size change, positive for the left node, negative for the right
     /// node.
     pub fn merge(&mut self, right_sibling: &mut Self) -> isize {
-        self.data.entries.append(&mut right_sibling.data.entries);
+        self.data.as_mut_lazy().entries.append(&mut right_sibling.data.as_mut_lazy().entries);
         let size_delta = right_sibling.meta_data.entries_size;
         self.meta_data.entries_size += right_sibling.meta_data.entries_size;
 

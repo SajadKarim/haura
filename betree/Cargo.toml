@@ -62,6 +62,7 @@ pmdk = { path = "./pmdk", optional = true }
 
 rkyv = { version = "0.7.42", features = ["validation"] }
 bytecheck = { version = "0.7.0" }
+extend = { version = "1.2.0" }
 
 [dev-dependencies]
 rand_xorshift = "0.3"

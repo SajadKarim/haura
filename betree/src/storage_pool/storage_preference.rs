@@ -210,7 +210,7 @@ impl Default for AtomicStoragePreference {
 /// `None`.
 #[derive(Debug, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 #[archive(check_bytes)]
-pub(crate) struct AtomicSystemStoragePreference(AtomicU8);
+pub struct AtomicSystemStoragePreference(AtomicU8);
 
 impl Clone for AtomicSystemStoragePreference {
     fn clone(&self) -> Self {

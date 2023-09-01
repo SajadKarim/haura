@@ -5,9 +5,10 @@ use super::{
 use crate::{
     bounded_future_queue::BoundedFutureQueue,
     buffer::Buf,
-    checksum::Checksum,
+    checksum::{Checksum, XxHash},
     vdev::{self, Block, Dev, Error as VdevError, Vdev, VdevRead, VdevWrite},
     PreferredAccessType, StoragePreference,
+    size::{Size, SizeMut, StaticSize},
 };
 use futures::{
     executor::{block_on, ThreadPool},
@@ -22,6 +23,30 @@ use std::{convert::TryInto, marker::PhantomData, ops::Index, pin::Pin, sync::Arc
 pub struct StoragePoolUnit<C: Checksum> {
     inner: Arc<Inner<C>>,
 }
+
+// impl<C: Checksum> StaticSize for StoragePoolUnit<C> {
+//     fn static_size() -> usize {
+//         0
+//     }
+// }
+
+// impl<C: Checksum> crate::data_management::HasStoragePreference for StoragePoolUnit<C> {
+//     fn current_preference(&self) -> Option<StoragePreference> {
+//         unimplemented!("..");
+//     }
+
+//     fn recalculate(&self) -> StoragePreference {
+//         unimplemented!("..");
+//     }
+
+//     fn system_storage_preference(&self) -> StoragePreference {
+//         unimplemented!("..");
+//     }
+
+//     fn set_system_storage_preference(&mut self, pref: StoragePreference) {
+//         unimplemented!("..");
+//     }
+// }
 
 pub(super) type WriteBackQueue = BoundedFutureQueue<
     DiskOffset,

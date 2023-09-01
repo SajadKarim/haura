@@ -3,7 +3,7 @@ use self::Inner::*;
 use super::{
     child_buffer::ChildBuffer,
     internal::{InternalNode, TakeChildBuffer},
-    leaf::LeafNode,
+    leaf::{LeafNode, LeafNodeMetaData, LeafNodeData},
     packed::PackedMap,
     FillUpResult, KeyInfo, PivotKey, MAX_INTERNAL_NODE_SIZE, MAX_LEAF_NODE_SIZE, MIN_FANOUT,
     MIN_FLUSH_SIZE, MIN_LEAF_NODE_SIZE,
@@ -11,10 +11,10 @@ use super::{
 use crate::{
     cow_bytes::{CowBytes, SlicedCowBytes},
     data_management::{Dml, HasStoragePreference, Object, ObjectReference},
-    database::DatasetId,
+    database::{DatasetId,RootSpu},
     size::{Size, SizeMut, StaticSize},
-    storage_pool::DiskOffset,
-    tree::{pivot_key::LocalPivotKey, MessageAction, imp::{leaf::ArchivedLeafNode, internal::{ArchivedInternalNode, InternalNodeMetaData, ArchivedInternalNodeMetaData, ArchivedInternalNodeData, InternalNodeData}}},
+    storage_pool::{DiskOffset, StoragePoolLayer},
+    tree::{pivot_key::LocalPivotKey, MessageAction, imp::{/*leaf::ArchivedLeafNode,*/ internal::{ArchivedInternalNode, InternalNodeMetaData, ArchivedInternalNodeMetaData, ArchivedInternalNodeData, InternalNodeData}}},
     StoragePreference,
 };
 use bincode::{deserialize, serialize_into};
@@ -35,18 +35,31 @@ use rkyv::{
     Archive, Archived, Deserialize, Fallible, Infallible, Serialize,
 };
 
+//pub(crate) type RootSpu = crate::storage_pool::StoragePoolUnit<crate::checksum::XxHash>;
+
 /// The tree node type.
 #[derive(Debug)]
-pub struct Node<N: 'static>(Inner<N>);
+pub struct Node<N: 'static>(Inner<N>); 
+//where S: StoragePoolLayer + 'static;
 
 #[derive(Debug)]
-pub(super) enum Inner<N: 'static> {
+enum NodeInnerType {
+    Leaf = 1,
+    Internal = 2,
+}
+
+#[derive(Debug)]
+pub(super) enum Inner<N: 'static>
+//where S: StoragePoolLayer + 'static
+{
     PackedLeaf(PackedMap),
     Leaf(LeafNode),
     Internal(InternalNode<ChildBuffer<N>>),
 }
 
-impl<R: HasStoragePreference + StaticSize> HasStoragePreference for Node<R> {
+impl<R: HasStoragePreference + StaticSize> HasStoragePreference for Node<R>/*, S> 
+where S: StoragePoolLayer + 'static*/
+{
     fn current_preference(&self) -> Option<StoragePreference> {
         match self.0 {
             PackedLeaf(_) => None,
@@ -87,24 +100,34 @@ impl<R: HasStoragePreference + StaticSize> HasStoragePreference for Node<R> {
     }
 }
 
-impl<R: ObjectReference + HasStoragePreference> Object<R> for Node<R> {
+impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<R> 
+//where S: StoragePoolLayer + 'static
+{
     fn pack<W: Write>(&self, mut writer: W) -> Result<(), io::Error> {
         match self.0 {
             //PackedLeaf(ref map) => { println!("..................... pack leaf node"); writer.write_all(map.inner())},
             //Leaf(ref leaf) => { println!("..................... pack leaf node"); PackedMap::pack(leaf, writer)},
             PackedLeaf(ref map) => unreachable!("... commented out PackedLeaf implementation..."),
             Leaf(ref leaf) => {
-                let mut serializer = rkyv::ser::serializers::AllocSerializer::<0>::default();
-                serializer.serialize_value(leaf).unwrap();
-                let bytes = serializer.into_serializer().into_inner();
 
-                writer.write_all(bytes.len().to_be_bytes().as_ref())?;
-                writer.write(bytes.as_ref()).map(|length| {                    
-                    debug!("{} bytes packed for leaf node",length); 
-                    ()
-                }).map_err(|e| {
-                    io::Error::new(io::ErrorKind::InvalidData, e)
-                })
+                let mut serializer_meta_data = rkyv::ser::serializers::AllocSerializer::<0>::default();
+                serializer_meta_data.serialize_value(&leaf.meta_data).unwrap();
+                let bytes_meta_data = serializer_meta_data.into_serializer().into_inner();
+
+                let mut serializer_data = rkyv::ser::serializers::AllocSerializer::<0>::default();
+                serializer_data.serialize_value(leaf.get_data()).unwrap();
+                let bytes_data = serializer_data.into_serializer().into_inner();
+
+                writer.write_all((NodeInnerType::Leaf as u32).to_be_bytes().as_ref())?;
+                writer.write_all(bytes_meta_data.len().to_be_bytes().as_ref())?;
+                writer.write_all(bytes_data.len().to_be_bytes().as_ref())?;
+
+                writer.write_all(&bytes_meta_data.as_ref())?;
+                writer.write_all(&bytes_data.as_ref())?;
+
+                debug!("Leaf node packed successfully"); 
+
+                Ok(())
             },
             /*Leaf(ref leaf) => {
                 serialize_into(writer, leaf)
@@ -116,76 +139,109 @@ impl<R: ObjectReference + HasStoragePreference> Object<R> for Node<R> {
                     .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
             },*/
             Internal(ref internal) => {
-                writer.write_all(&[0xFFu8, 0xFF, 0xFF, 0xFF] as &[u8])?;
-                let mut serializer = rkyv::ser::serializers::AllocSerializer::<0>::default();
-                serializer.serialize_value(internal).unwrap();
-                
-                let bytes = serializer.into_serializer().into_inner();
+                let mut serializer_meta_data = rkyv::ser::serializers::AllocSerializer::<0>::default();
+                serializer_meta_data.serialize_value(&internal.meta_data).unwrap();
+                let bytes_meta_data = serializer_meta_data.into_serializer().into_inner();
 
-                debug!("{} bytes packed for internal node",bytes.len()); 
+                let mut serializer_data = rkyv::ser::serializers::AllocSerializer::<0>::default();
+                serializer_data.serialize_value(&internal.data).unwrap();
+                let bytes_data = serializer_data.into_serializer().into_inner();
 
-                writer.write_all(bytes.len().to_be_bytes().as_ref())?;
-                writer.write_all(bytes.as_ref())?;
-                
+                writer.write_all((NodeInnerType::Internal as u32).to_be_bytes().as_ref())?;
+                writer.write_all(bytes_meta_data.len().to_be_bytes().as_ref())?;
+                writer.write_all(bytes_data.len().to_be_bytes().as_ref())?;
+
+                writer.write_all(&bytes_meta_data.as_ref())?;
+                writer.write_all(&bytes_data.as_ref())?;
+
+                debug!("Internal node packed successfully"); 
+
                 Ok(())
             },
         }
     }
 
-    fn unpack_at(_offset: DiskOffset, d_id: DatasetId, data: Box<[u8]>) -> Result<Self, io::Error> {
-        if data[..4] == [0xFFu8, 0xFF, 0xFF, 0xFF] {
+    fn unpack_at(pool: RootSpu, _offset: DiskOffset, d_id: DatasetId, data: Box<[u8]>) -> Result<Self, io::Error> 
+    {
+        if data[0..4] == (NodeInnerType::Internal as u32).to_be_bytes() {
+            let meta_data_len: usize = usize::from_be_bytes(data[4..12].try_into().unwrap());
+            let data_len: usize = usize::from_be_bytes(data[12..20].try_into().unwrap());
 
-            let len: usize = usize::from_be_bytes(data[4..12].try_into().unwrap());
+            let meta_data_start = 4 + 8 + 8;
+            let meta_data_end = meta_data_start + meta_data_len;   
 
-            let archivedinternalnode: &ArchivedInternalNode<ChildBuffer<_>> = rkyv::check_archived_root::<InternalNode<ChildBuffer<R>>>(&data[12..len+12]).unwrap();
+            let data_start = meta_data_end;
+            let data_end = data_start + data_len;   
+
+            let archivedinternalnodemetadata: &ArchivedInternalNodeMetaData = rkyv::check_archived_root::<InternalNodeMetaData>(&data[meta_data_start..meta_data_end]).unwrap();
             //let archivedinternalnode: &ArchivedInternalNode<ChildBuffer<_>>  = unsafe { archived_root::<InternalNode<ChildBuffer<R>>>(&data[12..len+12]) };
-            let result: Result<InternalNode<ChildBuffer<_>>, _> = archivedinternalnode.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new());            
+            let meta_data: InternalNodeMetaData = archivedinternalnodemetadata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-            match result {          
-                Ok(internal) => {
-                    debug!("bytes unpacked successful for internal node");
-                    Ok(Node(Internal(internal.complete_object_refs(d_id))))
-                },
-                Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
-            }
+            let archivedinternalnodedata: &ArchivedInternalNodeData<ChildBuffer<_>> = rkyv::check_archived_root::<InternalNodeData<ChildBuffer<R>>>(&data[data_start..data_end]).unwrap();
+            //let archivedinternalnode: &ArchivedInternalNode<ChildBuffer<_>>  = unsafe { archived_root::<InternalNode<ChildBuffer<R>>>(&data[12..len+12]) };
+            let data = archivedinternalnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+            debug!("Leaf node packed successfully"); 
+            Ok(Node(Internal (InternalNode {
+                meta_data : meta_data,
+                data: data,
+                meta_data_size: meta_data_len,
+                data_size: data_len
+            }.complete_object_refs(d_id))))
 
             /*match deserialize::<InternalNode<_>>(&data[4..]) {
                 Ok(internal) => Ok(Node(Internal(internal.complete_object_refs(d_id)))),
                 Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
             }*/
-        } else {
-           
+        } else if data[0..4] == (NodeInnerType::Leaf as u32).to_be_bytes() {
+            //panic!("hey!");
+
             // storage_preference is not preserved for packed leaves,
             // because they will not be written back to disk until modified,
             // and every modification requires them to be unpacked.
             // The leaf contents are scanned cheaply during unpacking, which
             // recalculates the correct storage_preference for the contained keys.
-            //panic!("..................... unpack leaf node");
+
             //Ok(Node(PackedLeaf(PackedMap::new(data.into_vec()))))
             /*match deserialize::<LeafNode>(&data[..]) {
                 Ok(leaf) => Ok(Node(Leaf(leaf))),
                 Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
             }*/
 
-            let len: usize = usize::from_be_bytes(data[0..8].try_into().unwrap());
+            let meta_data_len: usize = usize::from_be_bytes(data[4..12].try_into().unwrap());
+            let data_len: usize = usize::from_be_bytes(data[12..20].try_into().unwrap());
 
-            let archivedleafnode = rkyv::check_archived_root::<LeafNode>(&data[8..len+8]).unwrap();
+            let meta_data_start = 4 + 8 + 8;
+            let meta_data_end = meta_data_start + meta_data_len;   
+
+            let data_start = meta_data_end;
+            let data_end = data_start + data_len;   
+
+            let archivedleafnodemetadata = rkyv::check_archived_root::<LeafNodeMetaData>(&data[meta_data_start..meta_data_end]).unwrap();
             //let archivedleafnode: &ArchivedLeafNode = unsafe { archived_root::<LeafNode>(&data) };            
-            let result: Result<LeafNode, _> = archivedleafnode.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new());
-            match result {          
-                Ok(leaf) => {
-                    debug!("bytes unpacked successful for leaf node");
-                    Ok(Node(Leaf(leaf)))
-                },
-                Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
-            }
+            let meta_data:LeafNodeMetaData = archivedleafnodemetadata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
+            let archivedleafnodedata = rkyv::check_archived_root::<LeafNodeData>(&data[data_start..data_end]).unwrap();
+            //let archivedleafnode: &ArchivedLeafNode = unsafe { archived_root::<LeafNode>(&data) };            
+            let data:LeafNodeData = archivedleafnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+            debug!("Leaf node packed successfully"); 
+            Ok(Node(Leaf(LeafNode {
+                pool: Some(pool),
+                meta_data : meta_data,
+                data : Some(data),
+                meta_data_size: meta_data_len,
+                data_size: data_len
+            })))
+                
             /* match deserialize::<LeafNode>(&data[..]) {
                 Ok(leaf) => Ok(Node(Leaf(leaf))),
                 Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
             }*/
             //Err(io::Error::new(io::ErrorKind::InvalidData, "as"))
             
+        } else {
+            panic!("Unkown bytes to unpack. [0..4]: {}", u32::from_be_bytes(data[..4].try_into().unwrap()));
         }
     }
 
@@ -212,7 +268,9 @@ impl<R: ObjectReference + HasStoragePreference> Object<R> for Node<R> {
     }
 }
 
-impl<N: StaticSize> Size for Node<N> {
+impl<N: StaticSize> Size for Node<N> 
+//where S: StoragePoolLayer + 'static
+{
     fn size(&self) -> usize {
         match self.0 {
             PackedLeaf(ref map) => map.size(),
@@ -258,7 +316,9 @@ impl<N: StaticSize + HasStoragePreference> Node<N> {
     }
 }
 
-impl<N: HasStoragePreference + StaticSize> Node<N> {
+impl<N: HasStoragePreference + StaticSize> Node<N>
+//where S: StoragePoolLayer + 'static
+{
     pub(super) fn kind(&self) -> &str {
         match self.0 {
             PackedLeaf(_) => "packed leaf",
@@ -274,17 +334,18 @@ impl<N: HasStoragePreference + StaticSize> Node<N> {
     }
 
     fn ensure_unpacked(&mut self) -> isize {
-        let before = self.size();
+        return 0
+        // let before = self.size();
 
-        let leaf = if let PackedLeaf(ref mut map) = self.0 {
-            map.unpack_leaf()
-        } else {
-            return 0;
-        };
+        // let leaf = if let PackedLeaf(ref mut map) = self.0 {
+        //     map.unpack_leaf()
+        // } else {
+        //     return 0;
+        // };
 
-        self.0 = Leaf(leaf);
-        let after = self.size();
-        after as isize - before as isize
+        // self.0 = Leaf(leaf);
+        // let after = self.size();
+        // after as isize - before as isize
     }
 
     fn take(&mut self) -> Self {
@@ -340,7 +401,9 @@ impl<N: HasStoragePreference + StaticSize> Node<N> {
     }
 }
 
-impl<N: ObjectReference + StaticSize + HasStoragePreference> Node<N> {
+impl<N: ObjectReference + StaticSize + HasStoragePreference> Node<N>
+//where S: StoragePoolLayer + 'static
+{
     pub(super) fn split_root_mut<F>(&mut self, allocate_obj: F) -> isize
     where
         F: Fn(Self, LocalPivotKey) -> N,
@@ -407,7 +470,9 @@ pub(super) enum GetRangeResult<'a, T, N: 'a> {
     },
 }
 
-impl<N: HasStoragePreference> Node<N> {
+impl<N: HasStoragePreference> Node<N>
+//where S: StoragePoolLayer + 'static
+{
     pub(super) fn get(
         &self,
         key: &[u8],
@@ -475,7 +540,9 @@ impl<N: HasStoragePreference> Node<N> {
     }
 }
 
-impl<N: HasStoragePreference + StaticSize> Node<N> {
+impl<N: HasStoragePreference + StaticSize> Node<N> 
+//where S: StoragePoolLayer + 'static
+{
     pub(super) fn insert<K, M>(
         &mut self,
         key: K,
@@ -533,7 +600,9 @@ impl<N: HasStoragePreference + StaticSize> Node<N> {
     }
 }
 
-impl<N: HasStoragePreference> Node<N> {
+impl<N: HasStoragePreference> Node<N> 
+//where S: StoragePoolLayer + 'static
+{
     pub(super) fn child_pointer_iter_mut(&mut self) -> Option<impl Iterator<Item = &mut N> + '_> {
         match self.0 {
             Leaf(_) | PackedLeaf(_) => None,
@@ -560,7 +629,9 @@ impl<N: HasStoragePreference> Node<N> {
     }
 }
 
-impl<N: ObjectReference + StaticSize + HasStoragePreference> Node<N> {
+impl<N: ObjectReference + StaticSize + HasStoragePreference> Node<N> 
+//where S: StoragePoolLayer + 'static
+{
     pub(super) fn split(&mut self) -> (Self, CowBytes, isize, LocalPivotKey) {
         self.ensure_unpacked();
         match self.0 {
@@ -680,7 +751,9 @@ impl serde::Serialize for ByteString {
     }
 }
 
-impl<N: HasStoragePreference + ObjectReference> Node<N> {
+impl<N: HasStoragePreference + ObjectReference> Node<N>
+//where S: StoragePoolLayer + 'static
+{
     pub(crate) fn node_info<D>(&self, dml: &D) -> NodeInfo
     where
         D: Dml<Object = Node<N>, ObjectRef = N>,
