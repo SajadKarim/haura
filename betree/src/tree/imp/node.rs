@@ -60,21 +60,31 @@ pub(super) enum Inner<N: 'static>
 impl<R: HasStoragePreference + StaticSize> HasStoragePreference for Node<R>/*, S> 
 where S: StoragePoolLayer + 'static*/
 {
-    fn current_preference(&self) -> Option<StoragePreference> {
+    fn current_preference(&mut self) -> Option<StoragePreference> {
         match self.0 {
             PackedLeaf(_) => None,
-            Leaf(ref leaf) => leaf.current_preference(),
-            Internal(ref internal) => internal.current_preference(),
+            Leaf(ref mut leaf) => leaf.current_preference(),
+            Internal(ref mut internal) => internal.current_preference(),
         }
     }
 
-    fn recalculate(&self) -> StoragePreference {
+    fn recalculate(&mut self) -> StoragePreference {
         match self.0 {
             PackedLeaf(_) => {
                 unreachable!("packed leaves are never written back, have no preference")
             }
-            Leaf(ref leaf) => leaf.recalculate(),
-            Internal(ref internal) => internal.recalculate(),
+            Leaf(ref mut leaf) => leaf.recalculate(),
+            Internal(ref mut internal) => internal.recalculate(),
+        }
+    }
+
+    fn recalculate_lazy(&mut self) -> StoragePreference {
+        match self.0 {
+            PackedLeaf(_) => {
+                unreachable!("packed leaves are never written back, have no preference")
+            }
+            Leaf(ref mut leaf) => leaf.recalculate(),
+            Internal(ref mut internal) => internal.recalculate(),
         }
     }
 
@@ -115,7 +125,7 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
                 let bytes_meta_data = serializer_meta_data.into_serializer().into_inner();
 
                 let mut serializer_data = rkyv::ser::serializers::AllocSerializer::<0>::default();
-                serializer_data.serialize_value(leaf.get_data()).unwrap();
+                serializer_data.serialize_value(leaf.get_data().unwrap()).unwrap();
                 let bytes_data = serializer_data.into_serializer().into_inner();
 
                 writer.write_all((NodeInnerType::Leaf as u32).to_be_bytes().as_ref())?;
@@ -239,7 +249,7 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
                 node_size: size,
                 checksum: Some(checksum),
             };
-            abc.load_missing_part();
+            //abc.load_missing_part();
 
             debug!("Leaf node packed successfully"); 
             Ok(Node(Leaf(abc)))
@@ -484,14 +494,14 @@ impl<N: HasStoragePreference> Node<N>
 //where S: StoragePoolLayer + 'static
 {
     pub(super) fn get(
-        &self,
+        &mut self,
         key: &[u8],
         msgs: &mut Vec<(KeyInfo, SlicedCowBytes)>,
     ) -> GetResult<N> {
         match self.0 {
             PackedLeaf(ref map) => GetResult::Data(map.get(key)),
-            Leaf(ref leaf) => GetResult::Data(leaf.get_with_info(key)),
-            Internal(ref internal) => {
+            Leaf(ref mut leaf) => GetResult::Data(leaf.get_with_info(key)),
+            Internal(ref mut internal) => {
                 let (child_np, msg) = internal.get(key);
                 if let Some(msg) = msg {
                     msgs.push(msg);
@@ -502,7 +512,7 @@ impl<N: HasStoragePreference> Node<N>
     }
 
     pub(super) fn get_range<'a>(
-        &'a self,
+        &'a mut self,
         key: &[u8],
         left_pivot_key: &mut Option<CowBytes>,
         right_pivot_key: &mut Option<CowBytes>,
@@ -511,7 +521,7 @@ impl<N: HasStoragePreference> Node<N>
     {
         match self.0 {
             PackedLeaf(ref map) => GetRangeResult::Data(Box::new(map.get_all())),
-            Leaf(ref leaf) => GetRangeResult::Data(Box::new(
+            Leaf(ref mut leaf) => GetRangeResult::Data(Box::new(
                 leaf.entries().iter().map(|(k, v)| (&k[..], v.clone())),
             )),
             Internal(ref internal) => {
@@ -764,20 +774,24 @@ impl serde::Serialize for ByteString {
 impl<N: HasStoragePreference + ObjectReference> Node<N>
 //where S: StoragePoolLayer + 'static
 {
-    pub(crate) fn node_info<D>(&self, dml: &D) -> NodeInfo
+    pub(crate) fn node_info<D>(&mut self, dml: &D) -> NodeInfo
     where
         D: Dml<Object = Node<N>, ObjectRef = N>,
         N: ObjectReference<ObjectPointer = D::ObjectPointer>,
     {
-        match &self.0 {
+        let _storage = self.correct_preference();
+        let _system_storage = self.system_storage_preference();
+        let _level = self.level();
+
+        match &mut self.0 {
             Inner::Internal(int) => NodeInfo::Internal {
-                storage: self.correct_preference(),
-                system_storage: self.system_storage_preference(),
-                level: self.level(),
+                storage: _storage,
+                system_storage: _system_storage,
+                level: _level,
                 children: {
                     int.iter_with_bounds()
                         .map(|(maybe_left, child_buf, maybe_right)| {
-                            let (child, storage_preference, pivot_key) = {
+                            let (mut child, storage_preference, pivot_key) = {
                                 let mut np = child_buf.node_pointer.write();
                                 let pivot_key = np.index().clone();
                                 let storage_preference = np.correct_preference();
@@ -785,7 +799,7 @@ impl<N: HasStoragePreference + ObjectReference> Node<N>
                                 (child, storage_preference, pivot_key)
                             };
 
-                            let node_info = child.node_info(dml);
+                            let  node_info = child.node_info(dml);
                             drop(child);
 
                             dml.evict().unwrap();
@@ -802,9 +816,9 @@ impl<N: HasStoragePreference + ObjectReference> Node<N>
                 },
             },
             Inner::Leaf(leaf) => NodeInfo::Leaf {
-                storage: self.correct_preference(),
-                system_storage: self.system_storage_preference(),
-                level: self.level(),
+                storage: _storage,
+                system_storage: _system_storage,
+                level: _level,
                 entry_count: leaf.entries().len(),
             },
             Inner::PackedLeaf(packed) => {

@@ -121,15 +121,19 @@ impl<D> ObjRef<ObjectPointer<D>> {
 }
 
 impl<P: HasStoragePreference> HasStoragePreference for ObjRef<P> {
-    fn current_preference(&self) -> Option<StoragePreference> {
+    fn current_preference(&mut self) -> Option<StoragePreference> {
         Some(self.correct_preference())
     }
 
-    fn recalculate(&self) -> StoragePreference {
+    fn recalculate(&mut self) -> StoragePreference {
         self.correct_preference()
     }
 
-    fn correct_preference(&self) -> StoragePreference {
+    fn recalculate_lazy(&mut self) -> StoragePreference {
+        self.correct_preference()
+    }
+
+    fn correct_preference(&mut self) -> StoragePreference {
         match self {
             ObjRef::Unmodified(p, ..) => p.correct_preference(),
             ObjRef::Modified(mid, ..) | ObjRef::InWriteback(mid, ..) => mid.pref,

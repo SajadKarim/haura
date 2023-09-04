@@ -233,23 +233,23 @@ where
             .get_mut(&mut self.inner.borrow().root_node.write(), self.tree_id())?)
     }
 
-    fn get_root_node(&self) -> Result<X::CacheValueRef, Error> {
+    fn get_root_node(&self) -> Result<X::CacheValueRefMut, Error> {
         self.get_node(&self.inner.borrow().root_node)
     }
 
-    fn get_node(&self, np_ref: &RwLock<X::ObjectRef>) -> Result<X::CacheValueRef, Error> {
+    fn get_node(&self, np_ref: &RwLock<X::ObjectRef>) -> Result<X::CacheValueRefMut, Error> {
         if let Some(node) = self.dml.try_get(&np_ref.read()) {
             //println!("..in cache");            
             return Ok(node);
         }
-        println!("..from disk");
+        //println!("..from disk");
         Ok(self.dml.get(&mut np_ref.write())?)
     }
 
     pub(crate) fn get_node_pivot(
         &self,
         pivot: &PivotKey,
-    ) -> Result<Option<X::CacheValueRef>, Error> {
+    ) -> Result<Option<X::CacheValueRefMut>, Error> {
         let pivot = pivot.borrow();
         let mut node = self.get_root_node()?;
         Ok(loop {
@@ -364,7 +364,7 @@ where
     where
         X::ObjectRef: HasStoragePreference,
     {
-        let root = self.get_root_node()?;
+        let mut root = self.get_root_node()?;
 
         Ok(root.node_info(&self.dml))
     }
@@ -381,7 +381,7 @@ where
         let mut msgs = Vec::new();
         let mut node = self.get_root_node()?;
         let data = loop {
-            let next_node = match node.get(key, &mut msgs) {
+            let next_node: <X as Dml>::CacheValueRefMut = match node.get(key, &mut msgs) {
                 GetResult::NextNode(np) => self.get_node(np)?,
                 GetResult::Data(data) => break data,
             };

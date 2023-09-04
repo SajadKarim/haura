@@ -22,15 +22,19 @@ pub struct ObjectPointer<D> {
 }
 
 impl<D> HasStoragePreference for ObjectPointer<D> {
-    fn current_preference(&self) -> Option<StoragePreference> {
+    fn current_preference(&mut self) -> Option<StoragePreference> {
         Some(self.correct_preference())
     }
 
-    fn recalculate(&self) -> StoragePreference {
+    fn recalculate(&mut self) -> StoragePreference {
         self.correct_preference()
     }
 
-    fn correct_preference(&self) -> StoragePreference {
+    fn recalculate_lazy(&mut self) -> StoragePreference {
+        self.correct_preference()
+    }
+
+    fn correct_preference(&mut self) -> StoragePreference {
         StoragePreference::new(self.offset.storage_class())
     }
 

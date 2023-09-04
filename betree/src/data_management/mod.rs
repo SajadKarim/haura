@@ -81,7 +81,7 @@ pub trait ObjectReference: Serialize + DeserializeOwned + StaticSize + Debug + '
 pub trait HasStoragePreference {
     /// Return the [StoragePreference], if it is known to be correct,
     /// return None if it was invalidated and needs to be recalculated.
-    fn current_preference(&self) -> Option<StoragePreference>;
+    fn current_preference(&mut self) -> Option<StoragePreference>;
 
     /// Recalculate the storage preference, potentially scanning through all
     /// data contained by this value.
@@ -89,10 +89,12 @@ pub trait HasStoragePreference {
     /// Implementations are expected to cache the computed preference, so that
     /// immediately subsequent calls to [HasStoragePreference::current_preference]
     /// return Some.
-    fn recalculate(&self) -> StoragePreference;
+    fn recalculate(&mut self) -> StoragePreference;
+
+    fn recalculate_lazy(&mut self) -> StoragePreference;
 
     /// Returns a correct preference, recalculating it if needed.
-    fn correct_preference(&self) -> StoragePreference {
+    fn correct_preference(&mut self) -> StoragePreference {
         match self.current_preference() {
             Some(pref) => pref,
             None => self.recalculate(),
@@ -164,11 +166,11 @@ pub trait Dml: Sized {
 
     /// Provides immutable access to the object identified by the given
     /// `ObjectRef`.  Fails if the object was modified and has been evicted.
-    fn try_get(&self, or: &Self::ObjectRef) -> Option<Self::CacheValueRef>;
+    fn try_get(&self, or: &Self::ObjectRef) -> Option<Self::CacheValueRefMut>;
 
     /// Provides immutable access to the object identified by the given
     /// `ObjectRef`.
-    fn get(&self, or: &mut Self::ObjectRef) -> Result<Self::CacheValueRef, Error>;
+    fn get(&self, or: &mut Self::ObjectRef) -> Result<Self::CacheValueRefMut, Error>;
 
     /// Provides mutable access to the object identified by the given
     /// `ObjectRef`.

@@ -20,11 +20,11 @@ where
         (**self).spl()
     }
 
-    fn try_get(&self, or: &Self::ObjectRef) -> Option<Self::CacheValueRef> {
+    fn try_get(&self, or: &Self::ObjectRef) -> Option<Self::CacheValueRefMut> {
         (**self).try_get(or)
     }
 
-    fn get(&self, or: &mut Self::ObjectRef) -> Result<Self::CacheValueRef, Error> {
+    fn get(&self, or: &mut Self::ObjectRef) -> Result<Self::CacheValueRefMut, Error> {
         (**self).get(or)
     }
 
@@ -40,7 +40,7 @@ where
         (**self).try_get_mut(or)
     }
 
-    fn insert(&self, object: Self::Object, info: DatasetId, pk: PivotKey) -> Self::ObjectRef {
+    fn insert(&self, mut object: Self::Object, info: DatasetId, pk: PivotKey) -> Self::ObjectRef {
         (**self).insert(object, info, pk)
     }
 

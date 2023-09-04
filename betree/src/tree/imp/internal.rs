@@ -136,16 +136,16 @@ impl<T: Size> Size for InternalNode<T> {
 }
 
 impl<T: HasStoragePreference> HasStoragePreference for InternalNode<T> {
-    fn current_preference(&self) -> Option<StoragePreference> {
+    fn current_preference(&mut self) -> Option<StoragePreference> {
         self.meta_data.pref
             .as_option()
             .map(|pref| self.meta_data.system_storage_preference.weak_bound(&pref))
     }
 
-    fn recalculate(&self) -> StoragePreference {
+    fn recalculate(&mut self) -> StoragePreference {
         let mut pref = StoragePreference::NONE;
 
-        for child in &self.data.children {
+        for child in &mut self.data.children {
             pref.upgrade(child.correct_preference())
         }
 
@@ -153,9 +153,21 @@ impl<T: HasStoragePreference> HasStoragePreference for InternalNode<T> {
         pref
     }
 
-    fn correct_preference(&self) -> StoragePreference {
+    fn recalculate_lazy(&mut self) -> StoragePreference {
+        let mut pref = StoragePreference::NONE;
+
+        for child in &mut self.data.children {
+            pref.upgrade(child.correct_preference())
+        }
+
+        self.meta_data.pref.set(pref);
+        pref
+    }
+
+    fn correct_preference(&mut self) -> StoragePreference {
+        let storagepref = self.recalculate();
         self.meta_data.system_storage_preference
-            .weak_bound(&self.recalculate())
+            .weak_bound(&storagepref)
     }
 
     fn system_storage_preference(&self) -> StoragePreference {
@@ -235,11 +247,12 @@ impl<T> InternalNode<T> {
 }
 
 impl<N> InternalNode<ChildBuffer<N>> {
-    pub fn get(&self, key: &[u8]) -> (&RwLock<N>, Option<(KeyInfo, SlicedCowBytes)>) {
-        let child = &self.data.children[self.idx(key)];
+    pub fn get(&mut self, key: &[u8]) -> (&mut RwLock<N>, Option<(KeyInfo, SlicedCowBytes)>) {
+        let idx = self.idx(key);
+        let child = &mut self.data.children[idx];
 
         let msg = child.get(key).cloned();
-        (&child.node_pointer, msg)
+        (&mut child.node_pointer, msg)
     }
 
     pub fn pivot_get(&self, pk: &PivotKey) -> PivotGetResult<N> {

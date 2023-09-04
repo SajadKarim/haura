@@ -705,13 +705,13 @@ where
         &self.pool
     }
 
-    fn try_get(&self, or: &Self::ObjectRef) -> Option<Self::CacheValueRef> {
+    fn try_get(&self, or: &Self::ObjectRef) -> Option<Self::CacheValueRefMut> {
         let result = {
             // Drop order important
             let cache = self.cache.read();
             cache.get(&or.as_key(), false)
         };
-        result.map(CacheValueRef::read)
+        result.map(CacheValueRef::write)
     }
 
     fn try_get_mut(&self, or: &Self::ObjectRef) -> Option<Self::CacheValueRefMut> {
@@ -726,12 +726,12 @@ where
         }
     }
 
-    fn get(&self, or: &mut Self::ObjectRef) -> Result<Self::CacheValueRef, Error> {
+    fn get(&self, or: &mut Self::ObjectRef) -> Result<Self::CacheValueRefMut, Error> {
         let mut cache = self.cache.read();
         loop {
             if let Some(entry) = cache.get(&or.as_key(), true) {
                 drop(cache);
-                return Ok(CacheValueRef::read(entry));
+                return Ok(CacheValueRef::write(entry));
             }
             if let ObjRef::Unmodified(ref ptr, ref pk) = *or {
                 drop(cache);
@@ -776,7 +776,7 @@ where
         }
     }
 
-    fn insert(&self, object: Self::Object, info: DatasetId, pk: PivotKey) -> Self::ObjectRef {
+    fn insert(&self, mut object: Self::Object, info: DatasetId, pk: PivotKey) -> Self::ObjectRef {
         let mid = ModifiedObjectId {
             id: self.next_modified_node_id.fetch_add(1, Ordering::Relaxed),
             pref: object.correct_preference(),
@@ -794,7 +794,7 @@ where
 
     fn insert_and_get_mut(
         &self,
-        object: Self::Object,
+        mut object: Self::Object,
         info: DatasetId,
         pk: PivotKey,
     ) -> (Self::CacheValueRefMut, Self::ObjectRef) {
