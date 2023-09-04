@@ -21,6 +21,8 @@ use rkyv::{
     Archive, Archived, Deserialize, Fallible, Infallible, Serialize,
 };
 
+use std::os::raw::c_void;
+
 use extend::ext;
 
 #[ext]
@@ -53,11 +55,16 @@ where S: StoragePoolLayer + 'static*/
 { 
     //#[with(Skip)]
     pub pool: Option<RootSpu>,
+    pub disk_offset: Option<DiskOffset>,
     pub meta_data: LeafNodeMetaData,
     pub data: Option<LeafNodeData>,
     //pub data: LeafNodeData,
     pub meta_data_size: usize,
-    pub data_size: usize
+    pub data_size: usize,
+    pub data_start: usize,
+    pub data_end: usize,
+    pub node_size: crate::vdev::Block<u32>,
+    pub checksum: Option<crate::checksum::XxHash>
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Archive, Serialize, Deserialize)]
@@ -85,6 +92,16 @@ impl std::fmt::Debug for LeafNode {
     }
 }
 
+unsafe fn voidp_to_ref<'a, T>(p: *const c_void) -> &'a T
+{
+    unsafe { &*(p as *const T) }
+}
+
+fn print_type_of<T>(_: &T) {
+    println!("{}", std::any::type_name::<T>())
+}
+
+
 /// Case-dependent outcome of a rebalance operation.
 #[derive(Debug)]
 pub(super) enum FillUpResult {
@@ -107,8 +124,7 @@ where S: StoragePoolLayer + 'static*/
     fn actual_size(&self) -> Option<usize> {
         Some(
             packed::HEADER_FIXED_LEN
-                + self.data
-                    .as_ref_lazy()
+                + self.data.as_ref().unwrap()
                     .entries
                     .iter()
                     .map(|(key, (_keyinfo, value))| packed::ENTRY_LEN + key.len() + value.len())
@@ -129,7 +145,7 @@ where S: StoragePoolLayer + 'static*/
     fn recalculate(&self) -> StoragePreference {
         let mut pref = StoragePreference::NONE;
 
-        for (keyinfo, _v) in self.data.as_ref_lazy().entries.values() {
+        for (keyinfo, _v) in self.get_data().entries.values() {
             pref.upgrade(keyinfo.storage_preference);
         }
 
@@ -192,6 +208,7 @@ where S: StoragePoolLayer + 'static*/
 
         LeafNode {
             pool: None,
+            disk_offset: None,
             meta_data: LeafNodeMetaData { 
                 storage_preference: AtomicStoragePreference::known(storage_pref),
                 system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
@@ -201,7 +218,11 @@ where S: StoragePoolLayer + 'static*/
                 entries: entries
             }),
             meta_data_size: 0,
-            data_size: 0
+            data_size: 0,
+            data_start: 0,
+            data_end: 0,
+            node_size: crate::vdev::Block(0),
+            checksum: None,
         }
     }
 }
@@ -213,6 +234,7 @@ where S: StoragePoolLayer + 'static*/
     pub fn new() -> Self {
         LeafNode {
             pool: None,
+            disk_offset: None,
             meta_data: LeafNodeMetaData { 
                 storage_preference: AtomicStoragePreference::known(StoragePreference::NONE),
                 system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
@@ -222,7 +244,11 @@ where S: StoragePoolLayer + 'static*/
                 entries: BTreeMap::new()
             }),
             meta_data_size: 0,
-            data_size: 0
+            data_size: 0,
+            data_start: 0,
+            data_end: 0,
+            node_size: crate::vdev::Block(0),
+            checksum: None,
         }
     }
 
@@ -235,9 +261,94 @@ where S: StoragePoolLayer + 'static*/
     //     }
     // }
 
-    pub(in crate::tree) fn get_data(&self) -> &LeafNodeData {
-        &self.data.as_ref_lazy()
+    // pub(in crate::tree) fn get_data(&self) -> &LeafNodeData {
+    //     &self.get_data()
+    // }
+
+    pub(in crate::tree) fn load_missing_part(&mut self) {
+        if self.data.is_none() {
+            println!("layeeee.....222");
+            let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
+            match compressed_data {
+                Ok(obj) => {
+                    let len = obj.len();
+
+                    let bytes: Box<[u8]> = obj.into_boxed_slice();
+
+                    let archivedleafnodedata: &ArchivedLeafNodeData = rkyv::check_archived_root::<LeafNodeData>(&bytes[self.data_start..self.data_end]).unwrap();
+                    match <ArchivedLeafNodeData as rkyv::Deserialize<LeafNodeData, rkyv::de::deserializers::SharedDeserializeMap>>::deserialize(archivedleafnodedata, &mut rkyv::de::deserializers::SharedDeserializeMap::new()) //.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+                    {
+                        Ok(obj) => {self.data = Some(obj)},
+                        Err(e) => unimplemented!("xx"),
+                    }
+                },
+                Err(e) => {
+
+                }
+            };
+        } 
     }
+
+    pub(in crate::tree) fn get_data(&self) -> &LeafNodeData {
+        self.data.as_ref().unwrap()
+        // println!("layeeee.....");
+        // let mut node = LeafNodeData {
+        //     entries: BTreeMap::new()
+        // };
+
+        // if self.data.is_none() {
+        //     println!("layeeee.....222");
+        //     let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
+        //     match compressed_data {
+        //         Ok(obj) => {
+        //             let len = obj.len();
+
+        //             let bytes: Box<[u8]> = obj.into_boxed_slice();
+
+        //             let archivedleafnodedata: &ArchivedLeafNodeData = rkyv::check_archived_root::<LeafNodeData>(&bytes[self.data_start..self.data_end]).unwrap();
+        //             match <ArchivedLeafNodeData as rkyv::Deserialize<LeafNodeData, rkyv::de::deserializers::SharedDeserializeMap>>::deserialize(archivedleafnodedata, &mut rkyv::de::deserializers::SharedDeserializeMap::new()) //.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        //             {
+        //                 Ok(obj) => {node = obj},
+        //                 Err(e) => unimplemented!("xx"),
+        //             }
+        //         },
+        //         Err(e) => {
+
+        //         }
+        //     };
+        // } else {
+        //     return self.data.clone().unwrap();
+        // }
+
+        // node
+    }
+
+    pub(in crate::tree) fn get_data_mut(&mut self) -> &mut LeafNodeData {
+        if self.data.is_none() {
+            println!("layeeee.....");
+            let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
+            match compressed_data {
+                Ok(obj) => {
+                    let len = obj.len();
+
+                    let bytes: Box<[u8]> = obj.into_boxed_slice();
+
+                    let archivedleafnodedata: &ArchivedLeafNodeData = rkyv::check_archived_root::<LeafNodeData>(&bytes[self.data_start..self.data_end]).unwrap();
+                    match <ArchivedLeafNodeData as rkyv::Deserialize<LeafNodeData, rkyv::de::deserializers::SharedDeserializeMap>>::deserialize(archivedleafnodedata, &mut rkyv::de::deserializers::SharedDeserializeMap::new()) //.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+                    {
+                        Ok(obj) => {self.data = Some(obj)},
+                        Err(e) => unimplemented!("xx"),
+                    }
+                },
+                Err(e) => {
+
+                }
+            };
+        }
+
+        self.data.as_mut().unwrap()
+    }
+
 
     pub(in crate::tree) fn set_data(&mut self, obj: LeafNodeData) {
         self.data = Some(obj);
@@ -245,19 +356,19 @@ where S: StoragePoolLayer + 'static*/
 
     /// Returns the value for the given key.
     pub fn get(&self, key: &[u8]) -> Option<SlicedCowBytes> {
-        self.data.as_ref_lazy().entries.get(key).map(|(_info, data)| data).cloned()
+        self.get_data().entries.get(key).map(|(_info, data)| data).cloned()
     }
 
     pub(in crate::tree) fn get_with_info(&self, key: &[u8]) -> Option<(KeyInfo, SlicedCowBytes)> {
-        self.data.as_ref_lazy().entries.get(key).cloned()
+        self.get_data().entries.get(key).cloned()
     }
 
     pub(in crate::tree) fn entries(&self) -> &BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)> {
-        &self.data.as_ref_lazy().entries
+        &self.get_data().entries
     }
 
     pub(in crate::tree) fn entry_info(&mut self, key: &[u8]) -> Option<&mut KeyInfo> {
-        self.data.as_mut_lazy().entries.get_mut(key).map(|e| &mut e.0)
+        self.get_data_mut().entries.get_mut(key).map(|e| &mut e.0)
     }
 
     /// Split the node and transfer entries to a given other node `right_sibling`.
@@ -275,7 +386,7 @@ where S: StoragePoolLayer + 'static*/
         let mut sibling_size = 0;
         let mut sibling_pref = StoragePreference::NONE;
         let mut split_key = None;
-        for (k, (keyinfo, v)) in self.data.as_ref_lazy().entries.iter().rev() {
+        for (k, (keyinfo, v)) in self.get_data().entries.iter().rev() {
             sibling_size += packed::ENTRY_LEN + k.len() + v.len();
             sibling_pref.upgrade(keyinfo.storage_preference);
 
@@ -286,7 +397,7 @@ where S: StoragePoolLayer + 'static*/
         }
         let split_key = split_key.unwrap();
 
-        right_sibling.data.as_mut_lazy().entries = self.data.as_mut_lazy().entries.split_off(&split_key);
+        right_sibling.get_data_mut().entries = self.get_data_mut().entries.split_off(&split_key);
         self.meta_data.entries_size -= sibling_size;
         right_sibling.meta_data.entries_size = sibling_size;
         right_sibling.meta_data.storage_preference.set(sibling_pref);
@@ -296,7 +407,7 @@ where S: StoragePoolLayer + 'static*/
 
         let size_delta = -(sibling_size as isize);
 
-        let pivot_key = self.data.as_ref_lazy().entries.keys().next_back().cloned().unwrap();
+        let pivot_key = self.get_data().entries.keys().next_back().cloned().unwrap();
         (pivot_key, size_delta)
     }
 
@@ -305,7 +416,7 @@ where S: StoragePoolLayer + 'static*/
         K: Borrow<[u8]>,
     {
         self.meta_data.storage_preference.invalidate();
-        self.data.as_mut_lazy().entries.get_mut(key.borrow()).map(|entry| {
+        self.get_data_mut().entries.get_mut(key.borrow()).map(|entry| {
             entry.0.storage_preference = pref;
             entry.0.clone()
         })
@@ -334,7 +445,7 @@ where S: StoragePoolLayer + 'static*/
             self.meta_data.storage_preference.upgrade(keyinfo.storage_preference);
 
             if let Some((old_info, old_data)) =
-                self.data.as_mut_lazy().entries.insert(key.into(), (keyinfo.clone(), data))
+                self.get_data_mut().entries.insert(key.into(), (keyinfo.clone(), data))
             {
                 // There was a previous value in entries, which was now replaced
                 self.meta_data.entries_size -= old_data.len();
@@ -348,7 +459,7 @@ where S: StoragePoolLayer + 'static*/
                 self.meta_data.entries_size += packed::ENTRY_LEN;
                 self.meta_data.entries_size += key_size;
             }
-        } else if let Some((old_info, old_data)) = self.data.as_mut_lazy().entries.remove(key.borrow()) {
+        } else if let Some((old_info, old_data)) = self.get_data_mut().entries.remove(key.borrow()) {
             // The value was removed by msg, this may be a downgrade opportunity.
             // The preference of the removed entry can't be stricter than the current node
             // preference, by invariant. That leaves "less strict" and "as strict" as the
@@ -395,6 +506,7 @@ where S: StoragePoolLayer + 'static*/
         // assert!(self.size() > S::MAX);
         let mut right_sibling = LeafNode {
             pool: None,
+            disk_offset: None,
             // During a split, preference can't be inherited because the new subset of entries
             // might be a subset with a lower maximal preference.
             meta_data: LeafNodeMetaData { 
@@ -406,7 +518,11 @@ where S: StoragePoolLayer + 'static*/
                 entries: BTreeMap::new()
             }),
             meta_data_size: 0,
-            data_size: 0
+            data_size: 0,
+            data_start: 0,
+            data_end: 0,
+            node_size: crate::vdev::Block(0),
+            checksum: None,
         };
 
         // This adjusts sibling's size and pref according to its new entries
@@ -424,7 +540,7 @@ where S: StoragePoolLayer + 'static*/
     /// the size change, positive for the left node, negative for the right
     /// node.
     pub fn merge(&mut self, right_sibling: &mut Self) -> isize {
-        self.data.as_mut_lazy().entries.append(&mut right_sibling.data.as_mut_lazy().entries);
+        self.get_data_mut().entries.append(&mut right_sibling.get_data_mut().entries);
         let size_delta = right_sibling.meta_data.entries_size;
         self.meta_data.entries_size += right_sibling.meta_data.entries_size;
 

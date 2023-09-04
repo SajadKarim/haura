@@ -246,10 +246,10 @@ impl PackedMap {
 
         writer.write_u24::<LittleEndian>(pos)?;
 
-        for (key, (_keyinfo, value)) in entries {
+        /*for (key, (_keyinfo, value)) in entries {
             writer.write_all(key)?;
             writer.write_all(value)?;
-        }
+        }*/
         Ok(())
     }
 

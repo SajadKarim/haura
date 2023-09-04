@@ -103,12 +103,12 @@ where S: StoragePoolLayer + 'static*/
 impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<R> 
 //where S: StoragePoolLayer + 'static
 {
-    fn pack<W: Write>(&self, mut writer: W) -> Result<(), io::Error> {
-        match self.0 {
+    fn pack<W: Write>(&mut self, mut writer: W) -> Result<(), io::Error> {
+        match &mut self.0 {
             //PackedLeaf(ref map) => { println!("..................... pack leaf node"); writer.write_all(map.inner())},
             //Leaf(ref leaf) => { println!("..................... pack leaf node"); PackedMap::pack(leaf, writer)},
             PackedLeaf(ref map) => unreachable!("... commented out PackedLeaf implementation..."),
-            Leaf(ref leaf) => {
+            Leaf(ref mut leaf) => {
 
                 let mut serializer_meta_data = rkyv::ser::serializers::AllocSerializer::<0>::default();
                 serializer_meta_data.serialize_value(&leaf.meta_data).unwrap();
@@ -161,7 +161,7 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
         }
     }
 
-    fn unpack_at(pool: RootSpu, _offset: DiskOffset, d_id: DatasetId, data: Box<[u8]>) -> Result<Self, io::Error> 
+    fn unpack_at(size: crate::vdev::Block<u32>,checksum: crate::checksum::XxHash, pool: RootSpu, _offset: DiskOffset, d_id: DatasetId, data: Box<[u8]>) -> Result<Self, io::Error> 
     {
         if data[0..4] == (NodeInnerType::Internal as u32).to_be_bytes() {
             let meta_data_len: usize = usize::from_be_bytes(data[4..12].try_into().unwrap());
@@ -221,18 +221,28 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
             //let archivedleafnode: &ArchivedLeafNode = unsafe { archived_root::<LeafNode>(&data) };            
             let meta_data:LeafNodeMetaData = archivedleafnodemetadata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
+            /*
             let archivedleafnodedata = rkyv::check_archived_root::<LeafNodeData>(&data[data_start..data_end]).unwrap();
             //let archivedleafnode: &ArchivedLeafNode = unsafe { archived_root::<LeafNode>(&data) };            
             let data:LeafNodeData = archivedleafnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            */
+
+            let mut abc = LeafNode {
+                pool: Some(pool),
+                disk_offset: Some(_offset),
+                meta_data : meta_data,
+                data : None,//Some(data),
+                meta_data_size: meta_data_len,
+                data_size: data_len,
+                data_start: data_start,
+                data_end: data_end,
+                node_size: size,
+                checksum: Some(checksum),
+            };
+            abc.load_missing_part();
 
             debug!("Leaf node packed successfully"); 
-            Ok(Node(Leaf(LeafNode {
-                pool: Some(pool),
-                meta_data : meta_data,
-                data : Some(data),
-                meta_data_size: meta_data_len,
-                data_size: data_len
-            })))
+            Ok(Node(Leaf(abc)))
                 
             /* match deserialize::<LeafNode>(&data[..]) {
                 Ok(leaf) => Ok(Node(Leaf(leaf))),
