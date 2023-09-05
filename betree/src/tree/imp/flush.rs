@@ -59,13 +59,16 @@ where
             if !node.is_too_large() {
                 return Ok(());
             }
+
+            let actual_size =  node.actual_size();
+            let fanout = node.fanout();
             debug!(
                 "{}, {:?}, lvl: {}, size: {}, actual: {:?}",
                 node.kind(),
-                node.fanout(),
+                fanout,
                 node.level(),
                 node.size(),
-                node.actual_size()
+                actual_size
             );
             // 1. Select the largest child buffer which can be flushed.
             let mut child_buffer =

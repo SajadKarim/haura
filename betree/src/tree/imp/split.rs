@@ -18,20 +18,24 @@ where
     pub(super) fn split_root_node(&self, mut root_node: X::CacheValueRefMut) {
         self.dml.verify_cache();
         let before = root_node.size();
+        let fanout = root_node.fanout();
+        let size = root_node.size();
+        let actual_size = root_node.actual_size();
         debug!(
             "Splitting root. {}, {:?}, {}, {:?}",
             root_node.kind(),
-            root_node.fanout(),
-            root_node.size(),
-            root_node.actual_size()
+            fanout,
+            size,
+            actual_size
         );
+
         let size_delta = root_node.split_root_mut(|node, pk| {
             debug!(
                 "Root split child: {}, {:?}, {}, {:?}",
                 node.kind(),
-                node.fanout(),
-                node.size(),
-                node.actual_size()
+                0, //node.fanout(), //TODO fix it
+                0,//node.size(), // TODO fix it
+                0,//node.actual_size() // TODO fix it
             );
             self.dml
                 .insert(node, self.tree_id(), pk.to_global(self.tree_id()))

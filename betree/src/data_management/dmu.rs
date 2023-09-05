@@ -365,7 +365,7 @@ where
         let object_size = {
             #[cfg(debug_assertions)]
             {
-                super::Size::checked_size(&*object).expect("Size calculation mismatch")
+                super::Size::checked_size(&mut *object).expect("Size calculation mismatch")
             }
             #[cfg(not(debug_assertions))]
             {

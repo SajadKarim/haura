@@ -121,7 +121,7 @@ where S: StoragePoolLayer + 'static*/
         packed::HEADER_FIXED_LEN + self.meta_data.entries_size
     }
 
-    fn actual_size(&self) -> Option<usize> {
+    fn actual_size(&mut self) -> Option<usize> {
         Some(
             packed::HEADER_FIXED_LEN
                 + self.data.as_ref().unwrap()

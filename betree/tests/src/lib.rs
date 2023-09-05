@@ -191,24 +191,24 @@ impl TestDriver {
 fn insert_single() {
     let mut driver = TestDriver::setup("insert single", 1, 256);
 
-    driver.checkpoint("empty tree");
+    //driver.checkpoint("empty tree");
     driver.insert_random(b"foo", StoragePreference::NONE, 8192, 2000);
-    driver.checkpoint("inserted foo");
+    //driver.checkpoint("inserted foo");
 
     for _ in 1..=3 {
         driver.insert_random(b"foo", StoragePreference::NONE, 8192, 2000);
         // intentionally same key as above, to assert that tree structures is not changed by
         // object rewrites of the same size
-        driver.checkpoint("inserted foo");
+        //driver.checkpoint("inserted foo");
     }
 
     driver.insert_random(b"foo", StoragePreference::NONE, 8192, 4000);
-    driver.checkpoint("rewrote foo, but larger");
+    //driver.checkpoint("rewrote foo, but larger");
 
     driver.delete(b"foo");
-    driver.checkpoint("deleted foo");
+    //driver.checkpoint("deleted foo");
     driver.insert_random(b"bar", StoragePreference::NONE, 8192, 3000);
-    driver.checkpoint("inserted bar");
+    //driver.checkpoint("inserted bar");
 
     driver.sync();
     println!(".... reading foo");

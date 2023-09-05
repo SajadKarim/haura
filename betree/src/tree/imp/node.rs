@@ -14,7 +14,7 @@ use crate::{
     database::{DatasetId,RootSpu},
     size::{Size, SizeMut, StaticSize},
     storage_pool::{DiskOffset, StoragePoolLayer},
-    tree::{pivot_key::LocalPivotKey, MessageAction, imp::{/*leaf::ArchivedLeafNode,*/ internal::{ArchivedInternalNode, InternalNodeMetaData, ArchivedInternalNodeMetaData, ArchivedInternalNodeData, InternalNodeData}}},
+    tree::{pivot_key::LocalPivotKey, MessageAction, imp::{/*leaf::ArchivedLeafNode,*/ internal::{InternalNodeMetaData, ArchivedInternalNodeMetaData, ArchivedInternalNodeData, InternalNodeData}}},
     StoragePreference,
 };
 use bincode::{deserialize, serialize_into};
@@ -189,14 +189,20 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
 
             let archivedinternalnodedata: &ArchivedInternalNodeData<ChildBuffer<_>> = rkyv::check_archived_root::<InternalNodeData<ChildBuffer<R>>>(&data[data_start..data_end]).unwrap();
             //let archivedinternalnode: &ArchivedInternalNode<ChildBuffer<_>>  = unsafe { archived_root::<InternalNode<ChildBuffer<R>>>(&data[12..len+12]) };
-            let data = archivedinternalnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            let data: InternalNodeData<ChildBuffer<R>> = archivedinternalnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
             debug!("Leaf node packed successfully"); 
             Ok(Node(Internal (InternalNode {
+                pool: Some(pool),
+                disk_offset: Some(_offset),
                 meta_data : meta_data,
-                data: data,
+                data: None,//Some(data),
                 meta_data_size: meta_data_len,
-                data_size: data_len
+                data_size: data_len,
+                data_start: data_start,
+                data_end: data_end,
+                node_size: size,
+                checksum: Some(checksum),                
             }.complete_object_refs(d_id))))
 
             /*match deserialize::<InternalNode<_>>(&data[4..]) {
@@ -265,13 +271,16 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
         }
     }
 
-    fn debug_info(&self) -> String {
+    fn debug_info(&mut self) -> String {
+        let actual_size = self.actual_size();
+        let size = self.size();
+        let fanout = self.fanout();
         format!(
             "{}: {:?}, {}, {:?}",
             self.kind(),
-            self.fanout(),
-            self.size(),
-            self.actual_size()
+            fanout,
+            size,
+            actual_size
         )
     }
 
@@ -299,11 +308,11 @@ impl<N: StaticSize> Size for Node<N>
         }
     }
 
-    fn actual_size(&self) -> Option<usize> {
+    fn actual_size(&mut self) -> Option<usize> {
         match self.0 {
-            PackedLeaf(ref map) => map.actual_size(),
-            Leaf(ref leaf) => leaf.actual_size(),
-            Internal(ref internal) => internal.actual_size().map(|size| 4 + size),
+            PackedLeaf(ref mut map) => map.actual_size(),
+            Leaf(ref mut leaf) => leaf.actual_size(),
+            Internal(ref mut internal) => internal.actual_size().map(|size| 4 + size),
         }
     }
 }
@@ -346,10 +355,10 @@ impl<N: HasStoragePreference + StaticSize> Node<N>
             Internal(_) => "internal",
         }
     }
-    pub(super) fn fanout(&self) -> Option<usize> {
+    pub(super) fn fanout(&mut self) -> Option<usize> {
         match self.0 {
             Leaf(_) | PackedLeaf(_) => None,
-            Internal(ref internal) => Some(internal.fanout()),
+            Internal(ref mut internal) => Some(internal.fanout()),
         }
     }
 
@@ -372,10 +381,10 @@ impl<N: HasStoragePreference + StaticSize> Node<N>
         replace(self, Self::empty_leaf())
     }
 
-    pub(super) fn has_too_low_fanout(&self) -> bool {
+    pub(super) fn has_too_low_fanout(&mut self) -> bool {
         match self.0 {
             Leaf(_) | PackedLeaf(_) => false,
-            Internal(ref internal) => internal.fanout() < MIN_FANOUT,
+            Internal(ref mut internal) => internal.fanout() < MIN_FANOUT,
         }
     }
 
@@ -413,10 +422,10 @@ impl<N: HasStoragePreference + StaticSize> Node<N>
         }
     }
 
-    pub(super) fn root_needs_merge(&self) -> bool {
+    pub(super) fn root_needs_merge(&mut self) -> bool {
         match self.0 {
             Leaf(_) | PackedLeaf(_) => false,
-            Internal(ref internal) => internal.fanout() == 1,
+            Internal(ref mut internal) => internal.fanout() == 1,
         }
     }
 }
@@ -524,7 +533,10 @@ impl<N: HasStoragePreference> Node<N>
             Leaf(ref mut leaf) => GetRangeResult::Data(Box::new(
                 leaf.entries().iter().map(|(k, v)| (&k[..], v.clone())),
             )),
-            Internal(ref internal) => {
+            Internal(ref mut internal) => {
+                // TODO: load the child required in internal.get_range(key..)
+                internal.load_data();
+
                 let prefetch_option = if internal.level() == 1 {
                     internal.get_next_node(key)
                 } else {
@@ -539,13 +551,13 @@ impl<N: HasStoragePreference> Node<N>
         }
     }
 
-    pub(super) fn pivot_get(&self, pk: &PivotKey) -> Option<PivotGetResult<N>> {
+    pub(super) fn pivot_get(&mut self, pk: &PivotKey) -> Option<PivotGetResult<N>> {
         if pk.is_root() {
             return Some(PivotGetResult::Target(None));
         }
         match self.0 {
             PackedLeaf(_) | Leaf(_) => None,
-            Internal(ref internal) => Some(internal.pivot_get(pk)),
+            Internal(ref mut internal) => Some(internal.pivot_get(pk)),
         }
     }
 
@@ -634,10 +646,10 @@ impl<N: HasStoragePreference> Node<N>
         }
     }
 
-    pub(super) fn child_pointer_iter(&self) -> Option<impl Iterator<Item = &RwLock<N>> + '_> {
-        match self.0 {
+    pub(super) fn child_pointer_iter(&mut self) -> Option<impl Iterator<Item = &RwLock<N>> + '_> {
+        match &mut self.0 {
             Leaf(_) | PackedLeaf(_) => None,
-            Internal(ref internal) => Some(internal.iter().map(|child| &child.node_pointer)),
+            Internal(ref mut internal) => Some(internal.iter().map(|child| &child.node_pointer)),
         }
     }
 

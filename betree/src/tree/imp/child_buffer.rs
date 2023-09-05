@@ -186,7 +186,7 @@ impl<N: StaticSize> Size for ChildBuffer<N> {
         Self::static_size() + self.buffer_entries_size + N::static_size()
     }
 
-    fn actual_size(&self) -> Option<usize> {
+    fn actual_size(&mut self) -> Option<usize> {
         Some(
             Self::static_size()
                 + N::static_size()

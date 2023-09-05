@@ -128,7 +128,7 @@ pub trait Object<R>: Size + Sized + HasStoragePreference {
     ) -> Result<Self, io::Error>;
 
     /// Returns debug information about an object.
-    fn debug_info(&self) -> String;
+    fn debug_info(&mut self) -> String;
 
     /// Calls a closure on each child `ObjectRef` of this object.
     ///
