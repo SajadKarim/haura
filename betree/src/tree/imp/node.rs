@@ -54,7 +54,7 @@ pub(super) enum Inner<N: 'static>
 {
     PackedLeaf(PackedMap),
     Leaf(LeafNode),
-    Internal(InternalNode<ChildBuffer<N>>),
+    Internal(InternalNode<N>),
 }
 
 impl<R: HasStoragePreference + StaticSize> HasStoragePreference for Node<R>/*, S> 
@@ -187,9 +187,9 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
             //let archivedinternalnode: &ArchivedInternalNode<ChildBuffer<_>>  = unsafe { archived_root::<InternalNode<ChildBuffer<R>>>(&data[12..len+12]) };
             let meta_data: InternalNodeMetaData = archivedinternalnodemetadata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-            let archivedinternalnodedata: &ArchivedInternalNodeData<ChildBuffer<_>> = rkyv::check_archived_root::<InternalNodeData<ChildBuffer<R>>>(&data[data_start..data_end]).unwrap();
+            //let archivedinternalnodedata: &ArchivedInternalNodeData<ChildBuffer<_>> = rkyv::check_archived_root::<InternalNodeData<ChildBuffer<R>>>(&data[data_start..data_end]).unwrap();
             //let archivedinternalnode: &ArchivedInternalNode<ChildBuffer<_>>  = unsafe { archived_root::<InternalNode<ChildBuffer<R>>>(&data[12..len+12]) };
-            let data: InternalNodeData<ChildBuffer<R>> = archivedinternalnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            //let data: InternalNodeData<ChildBuffer<R>> = archivedinternalnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
             debug!("Leaf node packed successfully"); 
             Ok(Node(Internal (InternalNode {
@@ -318,14 +318,14 @@ impl<N: StaticSize> Size for Node<N>
 }
 
 impl<N: StaticSize + HasStoragePreference> Node<N> {
-    pub(super) fn try_walk(&mut self, key: &[u8]) -> Option<TakeChildBuffer<ChildBuffer<N>>> {
+    pub(super) fn try_walk(&mut self, key: &[u8]) -> Option<TakeChildBuffer<N>> {
         match self.0 {
             Leaf(_) | PackedLeaf(_) => None,
             Internal(ref mut internal) => internal.try_walk(key),
         }
     }
 
-    pub(super) fn try_find_flush_candidate(&mut self) -> Option<TakeChildBuffer<ChildBuffer<N>>> {
+    pub(super) fn try_find_flush_candidate(&mut self) -> Option<TakeChildBuffer<N>> {
         match self.0 {
             Leaf(_) | PackedLeaf(_) => None,
             Internal(ref mut internal) => internal.try_find_flush_candidate(
@@ -527,6 +527,7 @@ impl<N: HasStoragePreference> Node<N>
         right_pivot_key: &mut Option<CowBytes>,
         all_msgs: &mut BTreeMap<CowBytes, Vec<(KeyInfo, SlicedCowBytes)>>,
     ) -> GetRangeResult<Box<dyn Iterator<Item = (&'a [u8], (KeyInfo, SlicedCowBytes))> + 'a>, N>
+    where N: ObjectReference
     {
         match self.0 {
             PackedLeaf(ref map) => GetRangeResult::Data(Box::new(map.get_all())),

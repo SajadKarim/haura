@@ -29,11 +29,11 @@ use rkyv::{
 //#[derive(serde::Serialize, serde::Deserialize, Debug, Archive, Serialize, Deserialize)]
 //#[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
-pub(super) struct InternalNode<T> {
+pub(super) struct InternalNode<N: 'static> {
     pub pool: Option<RootSpu>,
     pub disk_offset: Option<DiskOffset>,
     pub meta_data: InternalNodeMetaData,
-    pub data: Option<InternalNodeData<T>>,
+    pub data: Option<InternalNodeData<N>>,
     pub meta_data_size: usize,
     pub data_size: usize,
     pub data_start: usize,
@@ -42,7 +42,7 @@ pub(super) struct InternalNode<T> {
     pub checksum: Option<crate::checksum::XxHash>
 }
 
-impl<T> std::fmt::Debug for InternalNode<T> {
+impl<N> std::fmt::Debug for InternalNode<N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "sdf")
     }
@@ -64,8 +64,8 @@ pub(super) struct InternalNodeMetaData {
 #[derive(serde::Serialize, serde::Deserialize, Debug, Archive, Serialize, Deserialize)]
 #[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
-pub(super) struct InternalNodeData<T> {
-    pub children: Vec<T>,
+pub(super) struct InternalNodeData<N: 'static> {
+    pub children: Vec<ChildBuffer<N>>,
 }
 
 // @tilpner:
@@ -134,7 +134,7 @@ fn internal_node_base_size() -> usize {
 }
 
 
-impl<T: Size> Size for InternalNode<T> {
+impl<N: StaticSize> Size for InternalNode<N> {
     fn size(&self) -> usize {
         internal_node_base_size() + self.meta_data.entries_size
     }
@@ -156,7 +156,7 @@ impl<T: Size> Size for InternalNode<T> {
     }
 }
 
-impl<T: HasStoragePreference> HasStoragePreference for InternalNode<T> {
+impl<N: HasStoragePreference> HasStoragePreference for InternalNode<N> {
     fn current_preference(&mut self) -> Option<StoragePreference> {
         self.meta_data.pref
             .as_option()
@@ -200,7 +200,7 @@ impl<T: HasStoragePreference> HasStoragePreference for InternalNode<T> {
     }
 }
 
-impl<T> InternalNode<T> {
+impl<N: ObjectReference> InternalNode<N> {
     // pub(in crate::tree) fn load_data_(&mut self) -> Result<InternalNodeData<T>, std::io::Error> 
     // where 
     // T: From<<T as ChildBuffer<crate::data_management::impls::ObjRef<crate::data_management::ObjectPointer<crate::checksum::XxHash>>>>::>
@@ -229,23 +229,24 @@ impl<T> InternalNode<T> {
     // }
 
 
-    pub(in crate::tree) fn load_data(&mut self) -> Result<(), std::io::Error> {
+    pub(in crate::tree) fn load_data(&mut self) -> Result<(), std::io::Error> 
+    {
         // This method ensures the data part is fully loaded before performing an operation that requires all the entries.
         // However, a better approach can be to load the pairs that are required (so it is a TODO!)
         // Also since at this point I am loading all the data so assuming that 'None' suggests all the data is already fetched.
         if self.data.is_none() {
-            panic!("....loading data part {}", self.disk_offset.unwrap().as_u64());
+            //panic!("....loading data part {}", self.disk_offset.unwrap().as_u64());
             let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
             match compressed_data {
                 Ok(buffer) => {
                     let bytes: Box<[u8]> = buffer.into_boxed_slice();
 
-                    let archivedinternalnodedata = rkyv::check_archived_root::<InternalNodeData<ChildBuffer<crate::data_management::impls::ObjRef<crate::data_management::ObjectPointer<crate::checksum::XxHash>>>>>(&bytes[self.data_start..self.data_end]).unwrap();
+                    //let archivedinternalnodedata: &ArchivedInternalNodeData<ChildBuffer<N>>  = rkyv::check_archived_root::<InternalNodeData<ChildBuffer<N>>>(&bytes[self.data_start..self.data_end]).unwrap();
                     
-                    //let archivedinternalnodedata: &ArchivedInternalNodeData<ChildBuffer<_>> = rkyv::check_archived_root::<InternalNodeData<ChildBuffer<T>>>(&bytes[self.data_start..self.data_end]).unwrap();
-                    let node: InternalNodeData<ChildBuffer<_>> = archivedinternalnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+                    let archivedinternalnodedata: &ArchivedInternalNodeData<_> = rkyv::check_archived_root::<InternalNodeData<N>>(&bytes[self.data_start..self.data_end]).unwrap();
+                    let node: InternalNodeData<_> = archivedinternalnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
                     //panic!("....loading data part {}", node.children.len());
-                    //self.data = Some(node);
+                    self.data = Some(node);
                     return Ok(());
                 },
                 Err(e) => {
@@ -258,10 +259,10 @@ impl<T> InternalNode<T> {
     }
 }
 
-impl<T> InternalNode<T> {
-    pub fn new(left_child: T, right_child: T, pivot_key: CowBytes, level: u32) -> Self
+impl<N> InternalNode<N> {
+    pub fn new(left_child: ChildBuffer<N>, right_child: ChildBuffer<N>, pivot_key: CowBytes, level: u32) -> Self
     where
-        T: Size,
+        N: StaticSize,
     {
         InternalNode {
             pool: None,
@@ -285,7 +286,7 @@ impl<T> InternalNode<T> {
         }
     }
 
-    pub(in crate::tree) fn get_data(&mut self) -> Result<& InternalNodeData<T>, std::io::Error> {
+    pub(in crate::tree) fn get_data(&mut self) -> Result<& InternalNodeData<N>, std::io::Error> {
         if self.data.is_none() {
             panic!("....loading data part {}", self.disk_offset.unwrap().as_u64());
             let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
@@ -310,7 +311,7 @@ impl<T> InternalNode<T> {
         Ok(self.data.as_ref().unwrap())
     }
 
-    pub(in crate::tree) fn get_data_mut(&mut self) -> Result<&mut InternalNodeData<T>, std::io::Error> {
+    pub(in crate::tree) fn get_data_mut(&mut self) -> Result<&mut InternalNodeData<N>, std::io::Error> {
         if self.data.is_none() {
             panic!("....loading data part 2");
             let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
@@ -354,17 +355,17 @@ impl<T> InternalNode<T> {
         }
     }
 
-    pub fn iter(&mut self) -> impl Iterator<Item = &T> + '_ {
+    pub fn iter(&mut self) -> impl Iterator<Item = &ChildBuffer<N>> + '_ {
         self.get_data().unwrap().children.iter()
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> + '_ {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut ChildBuffer<N>> + '_ {
         self.get_data_mut().unwrap().children.iter_mut()
     }
 
     pub fn iter_with_bounds(
         &mut self,
-    ) -> impl Iterator<Item = (Option<&CowBytes>, &T, Option<&CowBytes>)> + '_ {
+    ) -> impl Iterator<Item = (Option<&CowBytes>, &ChildBuffer<N>, Option<&CowBytes>)> + '_ {
         let ref pivot = self.meta_data.pivot;
         //let ref children = self.get_data().unwrap().children;
 
@@ -382,7 +383,7 @@ impl<T> InternalNode<T> {
     }
 }
 
-impl<N> InternalNode<ChildBuffer<N>> {
+impl<N> InternalNode<N> {
     pub fn get(&mut self, key: &[u8]) -> (&mut RwLock<N>, Option<(KeyInfo, SlicedCowBytes)>) {
         let idx = self.idx(key);
         let child = &mut self.get_data_mut().unwrap().children[idx];
@@ -559,13 +560,14 @@ impl<N> InternalNode<ChildBuffer<N>> {
     }
 }
 
-impl<N: StaticSize + HasStoragePreference> InternalNode<ChildBuffer<N>> {
+impl<N: StaticSize + HasStoragePreference> InternalNode<N> {
     pub fn range_delete(
         &mut self,
         start: &[u8],
         end: Option<&[u8]>,
         dead: &mut Vec<N>,
-    ) -> (usize, &mut N, Option<&mut N>) {
+    ) -> (usize, &mut N, Option<&mut N>) 
+    where N: ObjectReference {
         self.load_data();
         self.meta_data.pref.invalidate();
         let size_before = self.meta_data.entries_size;
@@ -620,7 +622,7 @@ impl<N: StaticSize + HasStoragePreference> InternalNode<ChildBuffer<N>> {
     }
 }
 
-impl<N: ObjectReference> InternalNode<ChildBuffer<N>> {
+impl<N: ObjectReference> InternalNode<N> {
     pub fn split(&mut self) -> (Self, CowBytes, isize, LocalPivotKey) {
         self.meta_data.pref.invalidate();
         let split_off_idx = self.fanout() / 2;
@@ -703,11 +705,11 @@ impl<N: ObjectReference> InternalNode<ChildBuffer<N>> {
     }
 }
 
-impl<N: HasStoragePreference> InternalNode<ChildBuffer<N>>
+impl<N: HasStoragePreference> InternalNode<N>
 where
-    ChildBuffer<N>: Size,
+    N: StaticSize,
 {
-    pub fn try_walk(&mut self, key: &[u8]) -> Option<TakeChildBuffer<ChildBuffer<N>>> {
+    pub fn try_walk(&mut self, key: &[u8]) -> Option<TakeChildBuffer<N>> {
         let child_idx = self.idx(key);
         if self.get_data_mut().unwrap().children[child_idx].is_empty(key) {
             Some(TakeChildBuffer {
@@ -724,7 +726,7 @@ where
         min_flush_size: usize,
         max_node_size: usize,
         min_fanout: usize,
-    ) -> Option<TakeChildBuffer<ChildBuffer<N>>> {
+    ) -> Option<TakeChildBuffer<N>> {
         let child_idx = {
             let size = self.size();
             let fanout = self.fanout();
@@ -752,12 +754,12 @@ where
     }
 }
 
-pub(super) struct TakeChildBuffer<'a, T: 'a> {
-    node: &'a mut InternalNode<T>,
+pub(super) struct TakeChildBuffer<'a, N: 'a + 'static> {
+    node: &'a mut InternalNode<N>,
     child_idx: usize,
 }
 
-impl<'a, N: StaticSize + HasStoragePreference> TakeChildBuffer<'a, ChildBuffer<N>> {
+impl<'a, N: StaticSize + HasStoragePreference> TakeChildBuffer<'a, N> {
     pub(super) fn split_child(
         &mut self,
         sibling_np: N,
@@ -780,15 +782,15 @@ impl<'a, N: StaticSize + HasStoragePreference> TakeChildBuffer<'a, ChildBuffer<N
     }
 }
 
-impl<'a, T> TakeChildBuffer<'a, T>
+impl<'a, N> TakeChildBuffer<'a, N>
 where
-    InternalNode<T>: Size,
+    N: StaticSize,
 {
     pub(super) fn size(&self) -> usize {
         Size::size(&*self.node)
     }
 
-    pub(super) fn prepare_merge(&mut self) -> PrepareMergeChild<T> {
+    pub(super) fn prepare_merge(&mut self) -> PrepareMergeChild<N> {
         if self.child_idx + 1 < self.node.get_data().unwrap().children.len() {
             PrepareMergeChild {
                 node: self.node,
@@ -805,13 +807,13 @@ where
     }
 }
 
-pub(super) struct PrepareMergeChild<'a, T: 'a> {
-    node: &'a mut InternalNode<T>,
+pub(super) struct PrepareMergeChild<'a, N: 'a + 'static> {
+    node: &'a mut InternalNode<N>,
     pivot_key_idx: usize,
     other_child_idx: usize,
 }
 
-impl<'a, N> PrepareMergeChild<'a, ChildBuffer<N>> {
+impl<'a, N> PrepareMergeChild<'a, N> {
     pub(super) fn sibling_node_pointer(&mut self) -> &mut RwLock<N> {
         &mut self.node.get_data_mut().unwrap().children[self.other_child_idx].node_pointer
     }
@@ -826,7 +828,7 @@ pub(super) struct MergeChildResult<NP> {
     pub(super) size_delta: isize,
 }
 
-impl<'a, N: Size + HasStoragePreference> PrepareMergeChild<'a, ChildBuffer<N>> {
+impl<'a, N: Size + HasStoragePreference> PrepareMergeChild<'a, N> {
     pub(super) fn merge_children(self) -> MergeChildResult<N> {
         let mut right_sibling = self.node.get_data_mut().unwrap().children.remove(self.pivot_key_idx + 1);
         let pivot_key = self.node.meta_data.pivot.remove(self.pivot_key_idx);
@@ -848,7 +850,7 @@ impl<'a, N: Size + HasStoragePreference> PrepareMergeChild<'a, ChildBuffer<N>> {
     }
 }
 
-impl<'a, N: Size + HasStoragePreference> PrepareMergeChild<'a, ChildBuffer<N>> {
+impl<'a, N: Size + HasStoragePreference> PrepareMergeChild<'a, N> {
     fn get_children(&mut self) -> (&mut ChildBuffer<N>, &mut ChildBuffer<N>) {
         let (left, right) = self.node.get_data_mut().unwrap().children[self.pivot_key_idx..].split_at_mut(1);
         (&mut left[0], &mut right[0])
@@ -869,7 +871,7 @@ impl<'a, N: Size + HasStoragePreference> PrepareMergeChild<'a, ChildBuffer<N>> {
     }
 }
 
-impl<'a, N: Size + HasStoragePreference> TakeChildBuffer<'a, ChildBuffer<N>> {
+impl<'a, N: Size + HasStoragePreference> TakeChildBuffer<'a, N> {
     pub fn node_pointer_mut(&mut self) -> &mut RwLock<N> {
         &mut self.node.get_data_mut().unwrap().children[self.child_idx].node_pointer
     }
