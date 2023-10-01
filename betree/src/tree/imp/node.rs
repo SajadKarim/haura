@@ -643,7 +643,7 @@ impl<N: HasStoragePreference> Node<N>
             Internal(ref mut internal) => Some(
                 internal
                     .iter_mut()
-                    .map(|child| child.node_pointer.get_mut()),
+                    .map(|child| child.as_mut().unwrap().node_pointer.get_mut()),
             ),
         }
     }
@@ -651,7 +651,7 @@ impl<N: HasStoragePreference> Node<N>
     pub(super) fn child_pointer_iter(&mut self) -> Option<impl Iterator<Item = &RwLock<N>> + '_> {
         match &mut self.0 {
             Leaf(_) | PackedLeaf(_) => None,
-            Internal(ref mut internal) => Some(internal.iter().map(|child| &child.node_pointer)),
+            Internal(ref mut internal) => Some(internal.iter().map(|child| &child.as_ref().unwrap().node_pointer)),
         }
     }
 
@@ -806,7 +806,7 @@ impl<N: HasStoragePreference + ObjectReference> Node<N>
                     int.iter_with_bounds()
                         .map(|(maybe_left, child_buf, maybe_right)| {
                             let (mut child, storage_preference, pivot_key) = {
-                                let mut np = child_buf.node_pointer.write();
+                                let mut np = child_buf.as_ref().unwrap().node_pointer.write();
                                 let pivot_key = np.index().clone();
                                 let storage_preference = np.correct_preference();
                                 let child = dml.get(&mut np).unwrap();
