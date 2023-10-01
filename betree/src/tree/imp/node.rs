@@ -125,7 +125,7 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
                 let bytes_meta_data = serializer_meta_data.into_serializer().into_inner();
 
                 let mut serializer_data = rkyv::ser::serializers::AllocSerializer::<0>::default();
-                serializer_data.serialize_value(leaf.get_data().unwrap()).unwrap();
+                serializer_data.serialize_value(leaf.get_all_entries().unwrap()).unwrap();
                 let bytes_data = serializer_data.into_serializer().into_inner();
 
                 writer.write_all((NodeInnerType::Leaf as u32).to_be_bytes().as_ref())?;
@@ -254,6 +254,7 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
                 data_end: data_end,
                 node_size: size,
                 checksum: Some(checksum),
+                need_to_load_data_from_nvm: true
             };
             //abc.load_missing_part();
 

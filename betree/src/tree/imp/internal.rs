@@ -201,34 +201,6 @@ impl<N: HasStoragePreference> HasStoragePreference for InternalNode<N> {
 }
 
 impl<N: ObjectReference> InternalNode<N> {
-    // pub(in crate::tree) fn load_data_(&mut self) -> Result<InternalNodeData<T>, std::io::Error> 
-    // where 
-    // T: From<<T as ChildBuffer<crate::data_management::impls::ObjRef<crate::data_management::ObjectPointer<crate::checksum::XxHash>>>>::>
-    // {
-    //     // This method ensures the data part is fully loaded before performing an operation that requires all the entries.
-    //     // However, a better approach can be to load the pairs that are required (so it is a TODO!)
-    //     // Also since at this point I am loading all the data so assuming that 'None' suggests all the data is already fetched.
-    //         let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
-    //         match compressed_data {
-    //             Ok(buffer) => {
-    //                 let bytes: Box<[u8]> = buffer.into_boxed_slice();
-
-    //                 let archivedinternalnodedata = rkyv::check_archived_root::<InternalNodeData<ChildBuffer<crate::data_management::impls::ObjRef<crate::data_management::ObjectPointer<crate::checksum::XxHash>>>>>(&bytes[self.data_start..self.data_end]).unwrap();
-                    
-    //                 //let archivedinternalnodedata: &ArchivedInternalNodeData<ChildBuffer<_>> = rkyv::check_archived_root::<InternalNodeData<ChildBuffer<T>>>(&bytes[self.data_start..self.data_end]).unwrap();
-    //                 let node: InternalNodeData<ChildBuffer<_>> = archivedinternalnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    //                 //panic!("....loading data part {}", node.children.len());
-    //                 //self.data = Some(node);
-    //                 //return Ok(());
-    //                 return Ok(node);
-    //             },
-    //             Err(e) => {
-    //                 return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
-    //             }
-    //         }
-    // }
-
-
     pub(in crate::tree) fn load_data(&mut self) -> Result<(), std::io::Error> 
     {
         // This method ensures the data part is fully loaded before performing an operation that requires all the entries.
@@ -244,6 +216,7 @@ impl<N: ObjectReference> InternalNode<N> {
                     //let archivedinternalnodedata: &ArchivedInternalNodeData<ChildBuffer<N>>  = rkyv::check_archived_root::<InternalNodeData<ChildBuffer<N>>>(&bytes[self.data_start..self.data_end]).unwrap();
                     
                     let archivedinternalnodedata: &ArchivedInternalNodeData<_> = rkyv::check_archived_root::<InternalNodeData<N>>(&bytes[self.data_start..self.data_end]).unwrap();
+                    
                     let node: InternalNodeData<_> = archivedinternalnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
                     //panic!("....loading data part {}", node.children.len());
                     self.data = Some(node);
@@ -366,17 +339,19 @@ impl<N> InternalNode<N> {
     pub fn iter_with_bounds(
         &mut self,
     ) -> impl Iterator<Item = (Option<&CowBytes>, &ChildBuffer<N>, Option<&CowBytes>)> + '_ {
+        self.get_data();
+
         let ref pivot = self.meta_data.pivot;
         //let ref children = self.get_data().unwrap().children;
 
-        self.get_data().unwrap().children.iter().enumerate().map(move |(idx, child)| {
+        self.data.as_ref().unwrap().children.iter().enumerate().map(move |(idx, child)| {
             let maybe_left = if idx == 0 {
                 None
             } else {
-                None//pivot.get(idx - 1)
+                pivot.get(idx - 1)
             };
 
-            let maybe_right = None;//pivot.get(idx);
+            let maybe_right = pivot.get(idx);
 
             (maybe_left, child, maybe_right)
         })

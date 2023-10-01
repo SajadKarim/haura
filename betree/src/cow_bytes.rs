@@ -20,27 +20,31 @@ pub struct CowBytes {
     pub(super) inner: Arc<Vec<u8>>,
 }
 
-impl Eq for ArchivedCowBytes {}
+// impl Eq for ArchivedCowBytes {}
 
-impl PartialEq for ArchivedCowBytes {
-    fn eq(&self, other: &Self) -> bool {
-        self == other
+// impl PartialEq for ArchivedCowBytes {
+//     fn eq(&self, other: &Self) -> bool {
+//         self == other
+//     }
+// }
+
+// impl Ord for ArchivedCowBytes {
+//     fn cmp(&self, other: &Self) -> Ordering {
+//         self.cmp(other)
+//     }
+// }
+
+// impl PartialOrd for ArchivedCowBytes {
+//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+//         Some(self.cmp(other))
+//     }
+// }
+
+impl AsRef<[u8]> for ArchivedCowBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.inner
     }
 }
-
-impl Ord for ArchivedCowBytes {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.cmp(other)
-    }
-}
-
-impl PartialOrd for ArchivedCowBytes {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-
 
 impl<T: AsRef<[u8]>> PartialEq<T> for CowBytes {
     fn eq(&self, other: &T) -> bool {
@@ -314,6 +318,12 @@ impl From<CowBytes> for SlicedCowBytes {
             len: data.len() as u32,
             data,
         }
+    }
+}
+
+impl From<&ArchivedSlicedCowBytes> for SlicedCowBytes {
+    fn from(x: &ArchivedSlicedCowBytes) -> Self {
+        x.into()
     }
 }
 

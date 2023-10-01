@@ -64,7 +64,8 @@ where S: StoragePoolLayer + 'static*/
     pub data_start: usize,
     pub data_end: usize,
     pub node_size: crate::vdev::Block<u32>,
-    pub checksum: Option<crate::checksum::XxHash>
+    pub checksum: Option<crate::checksum::XxHash>,
+    pub need_to_load_data_from_nvm: bool
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Archive, Serialize, Deserialize)]
@@ -88,7 +89,7 @@ pub struct LeafNodeData {
 
 impl std::fmt::Debug for LeafNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "sdf")
+        write!(f, "todo...")
     }
 }
 
@@ -145,7 +146,7 @@ where S: StoragePoolLayer + 'static*/
     fn recalculate(&mut self) -> StoragePreference {
         let mut pref = StoragePreference::NONE;
 
-        for (keyinfo, _v) in self.get_data().unwrap().entries.values() {
+        for (keyinfo, _v) in self.get_all_entries().unwrap().entries.values() {
             pref.upgrade(keyinfo.storage_preference);
         }
 
@@ -156,7 +157,7 @@ where S: StoragePoolLayer + 'static*/
     fn recalculate_lazy(&mut self) -> StoragePreference {
         let mut pref = StoragePreference::NONE;
 
-        for (keyinfo, _v) in self.get_data().unwrap().entries.values() {
+        for (keyinfo, _v) in self.get_all_entries().unwrap().entries.values() {
             pref.upgrade(keyinfo.storage_preference);
         }
 
@@ -234,6 +235,7 @@ where S: StoragePoolLayer + 'static*/
             data_end: 0,
             node_size: crate::vdev::Block(0),
             checksum: None,
+            need_to_load_data_from_nvm: true
         }
     }
 }
@@ -260,83 +262,95 @@ where S: StoragePoolLayer + 'static*/
             data_end: 0,
             node_size: crate::vdev::Block(0),
             checksum: None,
+            need_to_load_data_from_nvm: true
         }
+    }    
+
+    pub(in crate::tree) fn get_entry(&mut self, key: &[u8]) -> Result<& LeafNodeData, std::io::Error> {
+        if self.need_to_load_data_from_nvm {
+            if self.data.is_none() {
+                let mut leafnode = LeafNodeData { 
+                    entries: BTreeMap::new()
+                };
+
+                self.data = Some(leafnode);
+            }
+            
+            if self.disk_offset.is_some() && !self.data.as_ref().unwrap().entries.contains_key(key) {
+                let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
+                match compressed_data {
+                    Ok(buffer) => {
+                        let bytes: Box<[u8]> = buffer.into_boxed_slice();
+
+                        let archivedleafnodedata: &ArchivedLeafNodeData = rkyv::check_archived_root::<LeafNodeData>(&bytes[self.data_start..self.data_end]).unwrap();
+                        
+                        for val in archivedleafnodedata.entries.iter() {
+                            if val.key.as_ref().cmp(key).is_eq() {
+                                let val_1: KeyInfo = val.value.0.deserialize(&mut rkyv::Infallible).unwrap();
+                                let val_2: SlicedCowBytes = val.value.1.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).unwrap();
+
+                                let key: CowBytes = val.key.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).unwrap();
+
+                                self.data.as_mut().unwrap().entries.insert(key, (val_1, val_2));
+                            }
+                        }
+
+                        return Ok(self.data.as_ref().unwrap());
+                    },
+                    Err(e) => {
+                        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
+                    }
+                }
+            }
+        }
+
+        Ok(self.data.as_ref().unwrap())
     }
 
-    // pub fn new_with_params(meta_data: LeafNodeMetaData, meta_data_size: usize, data_size: usize) -> Self {
-    //     LeafNode {
-    //         meta_data: meta_data,
-    //         data: None,
-    //         meta_data_size: meta_data_size,
-    //         data_size: data_size 
-    //     }
-    // }
+    pub(in crate::tree) fn get_entry_mut(&mut self, key: &[u8]) -> Result<&mut LeafNodeData, std::io::Error> {
+        if self.need_to_load_data_from_nvm {
+            if self.data.is_none() {
+                let mut leafnode = LeafNodeData { 
+                    entries: BTreeMap::new()
+                };
 
-    // pub(in crate::tree) fn get_data(&self) -> &LeafNodeData {
-    //     &self.get_data()
-    // }
+                self.data = Some(leafnode);
+            }
+            
+            if self.disk_offset.is_some() && !self.data.as_ref().unwrap().entries.contains_key(key) {
+                let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
+                match compressed_data {
+                    Ok(buffer) => {
+                        let bytes: Box<[u8]> = buffer.into_boxed_slice();
 
-    // pub(in crate::tree) fn load_missing_part(&mut self) {
-    //     if self.data.is_none() {
-    //         println!("layeeee.....222");
-    //         let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
-    //         match compressed_data {
-    //             Ok(obj) => {
-    //                 let len = obj.len();
+                        let archivedleafnodedata: &ArchivedLeafNodeData = rkyv::check_archived_root::<LeafNodeData>(&bytes[self.data_start..self.data_end]).unwrap();
+                        
+                        for val in archivedleafnodedata.entries.iter() {
+                            if val.key.as_ref().cmp(key).is_eq() {
+                                let val_1: KeyInfo = val.value.0.deserialize(&mut rkyv::Infallible).unwrap();
+                                let val_2: SlicedCowBytes = val.value.1.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).unwrap();
 
-    //                 let bytes: Box<[u8]> = obj.into_boxed_slice();
+                                let key: CowBytes = val.key.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).unwrap();
 
-    //                 let archivedleafnodedata: &ArchivedLeafNodeData = rkyv::check_archived_root::<LeafNodeData>(&bytes[self.data_start..self.data_end]).unwrap();
-    //                 match <ArchivedLeafNodeData as rkyv::Deserialize<LeafNodeData, rkyv::de::deserializers::SharedDeserializeMap>>::deserialize(archivedleafnodedata, &mut rkyv::de::deserializers::SharedDeserializeMap::new()) //.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    //                 {
-    //                     Ok(obj) => {self.data = Some(obj)},
-    //                     Err(e) => unimplemented!("xx"),
-    //                 }
-    //             },
-    //             Err(e) => {
+                                self.data.as_mut().unwrap().entries.insert(key, (val_1, val_2));
+                            }
+                        }
 
-    //             }
-    //         };
-    //     } 
-    // }
+                        return Ok(self.data.as_mut().unwrap());
+                    },
+                    Err(e) => {
+                        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
+                    }
+                }
+            }
+        }
 
-    // pub(in crate::tree) fn get_data(&self) -> &LeafNodeData {
-    //     self.data.as_ref().unwrap()
-    //     // println!("layeeee.....");
-    //     // let mut node = LeafNodeData {
-    //     //     entries: BTreeMap::new()
-    //     // };
+        Ok(self.data.as_mut().unwrap())
+    }
 
-    //     // if self.data.is_none() {
-    //     //     println!("layeeee.....222");
-    //     //     let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
-    //     //     match compressed_data {
-    //     //         Ok(obj) => {
-    //     //             let len = obj.len();
-
-    //     //             let bytes: Box<[u8]> = obj.into_boxed_slice();
-
-    //     //             let archivedleafnodedata: &ArchivedLeafNodeData = rkyv::check_archived_root::<LeafNodeData>(&bytes[self.data_start..self.data_end]).unwrap();
-    //     //             match <ArchivedLeafNodeData as rkyv::Deserialize<LeafNodeData, rkyv::de::deserializers::SharedDeserializeMap>>::deserialize(archivedleafnodedata, &mut rkyv::de::deserializers::SharedDeserializeMap::new()) //.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    //     //             {
-    //     //                 Ok(obj) => {node = obj},
-    //     //                 Err(e) => unimplemented!("xx"),
-    //     //             }
-    //     //         },
-    //     //         Err(e) => {
-
-    //     //         }
-    //     //     };
-    //     // } else {
-    //     //     return self.data.clone().unwrap();
-    //     // }
-
-    //     // node
-    // }
-
-    pub(in crate::tree) fn get_data(&mut self) -> Result<& LeafNodeData, std::io::Error> {
-        if self.data.is_none() {
-            println!("....loading data part {}", self.disk_offset.unwrap().as_u64());
+    pub(in crate::tree) fn get_all_entries(&mut self) -> Result<& LeafNodeData, std::io::Error> {
+        if self.need_to_load_data_from_nvm && self.disk_offset.is_some() {
+            self.need_to_load_data_from_nvm = false; // TODO: What if all the entries are fetched one by one? handle this part as well.
             let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
             match compressed_data {
                 Ok(buffer) => {
@@ -357,9 +371,9 @@ where S: StoragePoolLayer + 'static*/
         Ok(self.data.as_ref().unwrap())
     }
 
-    pub(in crate::tree) fn get_data_mut(&mut self) -> Result<&mut LeafNodeData, std::io::Error> {
-        if self.data.is_none() {
-            println!("....loading data part 2");
+    pub(in crate::tree) fn get_all_entries_mut(&mut self) -> Result<&mut LeafNodeData, std::io::Error> {
+        if self.need_to_load_data_from_nvm && self.disk_offset.is_some() {
+            self.need_to_load_data_from_nvm = false;
             let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
             match compressed_data {
                 Ok(buffer) => {
@@ -381,52 +395,25 @@ where S: StoragePoolLayer + 'static*/
         Ok(self.data.as_mut().unwrap())
     }
 
-    // pub(in crate::tree) fn get_data_mut(&mut self) -> &mut LeafNodeData {
-    //     if self.data.is_none() {
-    //         println!("layeeee.....");
-    //         let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
-    //         match compressed_data {
-    //             Ok(obj) => {
-    //                 let len = obj.len();
-
-    //                 let bytes: Box<[u8]> = obj.into_boxed_slice();
-
-    //                 let archivedleafnodedata: &ArchivedLeafNodeData = rkyv::check_archived_root::<LeafNodeData>(&bytes[self.data_start..self.data_end]).unwrap();
-    //                 match <ArchivedLeafNodeData as rkyv::Deserialize<LeafNodeData, rkyv::de::deserializers::SharedDeserializeMap>>::deserialize(archivedleafnodedata, &mut rkyv::de::deserializers::SharedDeserializeMap::new()) //.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    //                 {
-    //                     Ok(obj) => {self.data = Some(obj)},
-    //                     Err(e) => unimplemented!("xx"),
-    //                 }
-    //             },
-    //             Err(e) => {
-
-    //             }
-    //         };
-    //     }
-
-    //     self.data.as_mut().unwrap()
-    // }
-
-
     pub(in crate::tree) fn set_data(&mut self, obj: LeafNodeData) {
         self.data = Some(obj);
     }
 
     /// Returns the value for the given key.
     pub fn get(&mut self, key: &[u8]) -> Option<SlicedCowBytes> {
-        self.get_data().unwrap().entries.get(key).map(|(_info, data)| data).cloned()
+        self.get_entry(key).unwrap().entries.get(key).map(|(_info, data)| data).cloned()
     }
 
     pub(in crate::tree) fn get_with_info(&mut self, key: &[u8]) -> Option<(KeyInfo, SlicedCowBytes)> {
-        self.get_data().unwrap().entries.get(key).cloned()
+        self.get_entry(key).unwrap().entries.get(key).cloned()
     }
 
     pub(in crate::tree) fn entries(&mut self) -> &BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)> {
-        &self.get_data().unwrap().entries
+        &self.get_all_entries().unwrap().entries
     }
 
     pub(in crate::tree) fn entry_info(&mut self, key: &[u8]) -> Option<&mut KeyInfo> {
-        self.get_data_mut().unwrap().entries.get_mut(key).map(|e| &mut e.0)
+        self.get_entry_mut(key).unwrap().entries.get_mut(key).map(|e| &mut e.0)
     }
 
     /// Split the node and transfer entries to a given other node `right_sibling`.
@@ -444,7 +431,7 @@ where S: StoragePoolLayer + 'static*/
         let mut sibling_size = 0;
         let mut sibling_pref = StoragePreference::NONE;
         let mut split_key = None;
-        for (k, (keyinfo, v)) in self.get_data().unwrap().entries.iter().rev() {
+        for (k, (keyinfo, v)) in self.get_all_entries().unwrap().entries.iter().rev() {
             sibling_size += packed::ENTRY_LEN + k.len() + v.len();
             sibling_pref.upgrade(keyinfo.storage_preference);
 
@@ -455,7 +442,7 @@ where S: StoragePoolLayer + 'static*/
         }
         let split_key = split_key.unwrap();
 
-        right_sibling.get_data_mut().unwrap().entries = self.get_data_mut().unwrap().entries.split_off(&split_key);
+        right_sibling.get_all_entries_mut().unwrap().entries = self.get_all_entries_mut().unwrap().entries.split_off(&split_key);
         self.meta_data.entries_size -= sibling_size;
         right_sibling.meta_data.entries_size = sibling_size;
         right_sibling.meta_data.storage_preference.set(sibling_pref);
@@ -465,7 +452,7 @@ where S: StoragePoolLayer + 'static*/
 
         let size_delta = -(sibling_size as isize);
 
-        let pivot_key = self.get_data().unwrap().entries.keys().next_back().cloned().unwrap();
+        let pivot_key = self.get_all_entries().unwrap().entries.keys().next_back().cloned().unwrap();
         (pivot_key, size_delta)
     }
 
@@ -474,7 +461,7 @@ where S: StoragePoolLayer + 'static*/
         K: Borrow<[u8]>,
     {
         self.meta_data.storage_preference.invalidate();
-        self.get_data_mut().unwrap().entries.get_mut(key.borrow()).map(|entry| {
+        self.get_entry_mut(key.borrow()).unwrap().entries.get_mut(key.borrow()).map(|entry| {
             entry.0.storage_preference = pref;
             entry.0.clone()
         })
@@ -503,7 +490,7 @@ where S: StoragePoolLayer + 'static*/
             self.meta_data.storage_preference.upgrade(keyinfo.storage_preference);
 
             if let Some((old_info, old_data)) =
-                self.get_data_mut().unwrap().entries.insert(key.into(), (keyinfo.clone(), data))
+                self.get_all_entries_mut().unwrap().entries.insert(key.into(), (keyinfo.clone(), data))
             {
                 // There was a previous value in entries, which was now replaced
                 self.meta_data.entries_size -= old_data.len();
@@ -517,7 +504,7 @@ where S: StoragePoolLayer + 'static*/
                 self.meta_data.entries_size += packed::ENTRY_LEN;
                 self.meta_data.entries_size += key_size;
             }
-        } else if let Some((old_info, old_data)) = self.get_data_mut().unwrap().entries.remove(key.borrow()) {
+        } else if let Some((old_info, old_data)) = self.get_entry_mut(key.borrow()).unwrap().entries.remove(key.borrow()) {
             // The value was removed by msg, this may be a downgrade opportunity.
             // The preference of the removed entry can't be stricter than the current node
             // preference, by invariant. That leaves "less strict" and "as strict" as the
@@ -581,6 +568,7 @@ where S: StoragePoolLayer + 'static*/
             data_end: 0,
             node_size: crate::vdev::Block(0),
             checksum: None,
+            need_to_load_data_from_nvm: true
         };
 
         // This adjusts sibling's size and pref according to its new entries
@@ -598,7 +586,7 @@ where S: StoragePoolLayer + 'static*/
     /// the size change, positive for the left node, negative for the right
     /// node.
     pub fn merge(&mut self, right_sibling: &mut Self) -> isize {
-        self.get_data_mut().unwrap().entries.append(&mut right_sibling.get_data_mut().unwrap().entries);
+        self.get_all_entries_mut().unwrap().entries.append(&mut right_sibling.get_all_entries_mut().unwrap().entries);
         let size_delta = right_sibling.meta_data.entries_size;
         self.meta_data.entries_size += right_sibling.meta_data.entries_size;
 

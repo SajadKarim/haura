@@ -31,6 +31,13 @@ pub struct KeyInfo {
     storage_preference: StoragePreference,
 }
 
+
+impl From<&ArchivedKeyInfo> for KeyInfo {
+    fn from(x: &ArchivedKeyInfo) -> Self {
+        x.into()
+    }
+}
+
 impl StaticSize for KeyInfo {
     fn static_size() -> usize {
         mem::size_of::<StoragePreference>()
