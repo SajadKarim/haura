@@ -44,6 +44,16 @@ pub trait StoragePoolLayer: Clone + Send + Sync + 'static {
         block_on(self.read_async(size, offset, checksum)?.into_future())
     }
 
+    type SliceAsync: TryFuture<Ok = &'static [u8], Error = VdevError> + Send;
+
+    /// Reads `size` blocks from the given `offset`.
+    fn get_slice(
+        &self,
+        offset: DiskOffset,
+        start: usize,
+        end: usize
+    ) -> VdevResult<Self::SliceAsync>;
+    
     /// Future returned by `read_async`.
     type ReadAsync: TryFuture<Ok = Buf, Error = VdevError> + Send;
 
