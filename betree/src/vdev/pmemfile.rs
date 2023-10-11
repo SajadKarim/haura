@@ -62,7 +62,7 @@ impl VdevRead for PMemFile {
     ) -> Result<&'static [u8]> {
 
         unsafe {
-            match self.file.get_slice(offset.to_bytes() as usize, start, end) {
+            match self.file.get_slice(offset.to_bytes() as usize + start, end - start) {
                 Ok(val) => Ok(val),
                 Err(e) => {
                     self.stats
