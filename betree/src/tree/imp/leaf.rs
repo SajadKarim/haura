@@ -277,12 +277,10 @@ where S: StoragePoolLayer + 'static*/
             }
             
             if self.disk_offset.is_some() && !self.data.as_ref().unwrap().entries.contains_key(key) {
-                let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
-                match compressed_data {
-                    Ok(buffer) => {
-                        let bytes: Box<[u8]> = buffer.into_boxed_slice();
 
-                        let archivedleafnodedata: &ArchivedLeafNodeData = rkyv::check_archived_root::<LeafNodeData>(&bytes[self.data_start..self.data_end]).unwrap();
+                match self.pool.as_ref().unwrap().slice(self.disk_offset.unwrap(), self.data_start, self.data_end) {
+                    Ok(val) => {
+                        let archivedleafnodedata: &ArchivedLeafNodeData = unsafe { archived_root::<LeafNodeData>(&val[..]) };
                         
                         for val in archivedleafnodedata.entries.iter() {
                             if val.key.as_ref().cmp(key).is_eq() {
@@ -318,12 +316,9 @@ where S: StoragePoolLayer + 'static*/
             }
             
             if self.disk_offset.is_some() && !self.data.as_ref().unwrap().entries.contains_key(key) {
-                let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
-                match compressed_data {
-                    Ok(buffer) => {
-                        let bytes: Box<[u8]> = buffer.into_boxed_slice();
-
-                        let archivedleafnodedata: &ArchivedLeafNodeData = rkyv::check_archived_root::<LeafNodeData>(&bytes[self.data_start..self.data_end]).unwrap();
+                match self.pool.as_ref().unwrap().slice(self.disk_offset.unwrap(), self.data_start, self.data_end) {
+                    Ok(val) => {
+                        let archivedleafnodedata: &ArchivedLeafNodeData = unsafe { archived_root::<LeafNodeData>(&val[..]) };
                         
                         for val in archivedleafnodedata.entries.iter() {
                             if val.key.as_ref().cmp(key).is_eq() {
