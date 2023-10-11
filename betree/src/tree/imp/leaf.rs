@@ -280,8 +280,9 @@ where S: StoragePoolLayer + 'static*/
 
                 match self.pool.as_ref().unwrap().slice(self.disk_offset.unwrap(), self.data_start, self.data_end) {
                     Ok(val) => {
-                        let archivedleafnodedata: &ArchivedLeafNodeData = unsafe { archived_root::<LeafNodeData>(&val[..]) };
-                        
+                        //let archivedleafnodedata: &ArchivedLeafNodeData = unsafe { archived_root::<LeafNodeData>(&val[..]) };
+                        let archivedleafnodedata: &ArchivedLeafNodeData = rkyv::check_archived_root::<LeafNodeData>(&val[..]).unwrap();
+
                         for val in archivedleafnodedata.entries.iter() {
                             if val.key.as_ref().cmp(key).is_eq() {
                                 let val_1: KeyInfo = val.value.0.deserialize(&mut rkyv::Infallible).unwrap();
@@ -318,7 +319,8 @@ where S: StoragePoolLayer + 'static*/
             if self.disk_offset.is_some() && !self.data.as_ref().unwrap().entries.contains_key(key) {
                 match self.pool.as_ref().unwrap().slice(self.disk_offset.unwrap(), self.data_start, self.data_end) {
                     Ok(val) => {
-                        let archivedleafnodedata: &ArchivedLeafNodeData = unsafe { archived_root::<LeafNodeData>(&val[..]) };
+                        //let archivedleafnodedata: &ArchivedLeafNodeData = unsafe { archived_root::<LeafNodeData>(&val[..]) };
+                        let archivedleafnodedata: &ArchivedLeafNodeData = rkyv::check_archived_root::<LeafNodeData>(&val[..]).unwrap();
                         
                         for val in archivedleafnodedata.entries.iter() {
                             if val.key.as_ref().cmp(key).is_eq() {

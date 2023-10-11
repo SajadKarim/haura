@@ -219,7 +219,26 @@ impl<N: ObjectReference> InternalNode<N> {
 
             if self.disk_offset.is_some() && self.data.as_ref().unwrap().children.len() < idx {
                 self.data.as_mut().unwrap().children.resize_with(idx, || None);
-                let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
+
+
+                match self.pool.as_ref().unwrap().slice(self.disk_offset.unwrap(), self.data_start, self.data_end) {
+                    Ok(val) => {
+
+                        let archivedinternalnodedata: &ArchivedInternalNodeData<_> = rkyv::check_archived_root::<InternalNodeData<N>>(&val[..]).unwrap();
+                        
+                        let val: Option<ChildBuffer<N>> = archivedinternalnodedata.children[idx].deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).unwrap();
+                        
+                        self.data.as_mut().unwrap().children.insert(idx, val);
+                        
+                        return Ok(());
+                    },
+                    Err(e) => {
+                        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
+                    }
+                }
+
+
+                /*let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
                 match compressed_data {
                     Ok(buffer) => {
                         let bytes: Box<[u8]> = buffer.into_boxed_slice();
@@ -237,7 +256,7 @@ impl<N: ObjectReference> InternalNode<N> {
                     Err(e) => {
                         return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
                     }
-                }
+                }*/
             }
         }
 

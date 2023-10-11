@@ -174,7 +174,7 @@ impl<C: Checksum> StoragePoolLayer for StoragePoolUnit<C> {
             // inner.write_back_queue.wait_async(offset).await;
             inner
                 .by_offset(offset)
-                .get_slice(offset.block_offset(), 0, 0)
+                .get_slice(offset.block_offset(), start, end)
                 .await
         })?))
     }
