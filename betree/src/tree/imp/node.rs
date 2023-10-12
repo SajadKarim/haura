@@ -113,7 +113,7 @@ where S: StoragePoolLayer + 'static*/
 impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<R> 
 //where S: StoragePoolLayer + 'static
 {
-    fn pack<W: Write>(&mut self, mut writer: W) -> Result<(), io::Error> {
+    fn pack<W: Write>(&mut self, mut writer: W, metadata_size: &mut usize) -> Result<(), io::Error> {
         match &mut self.0 {
             //PackedLeaf(ref map) => { println!("..................... pack leaf node"); writer.write_all(map.inner())},
             //Leaf(ref leaf) => { println!("..................... pack leaf node"); PackedMap::pack(leaf, writer)},
@@ -134,6 +134,8 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
 
                 writer.write_all(&bytes_meta_data.as_ref())?;
                 writer.write_all(&bytes_data.as_ref())?;
+
+                *metadata_size = 4 + 8 + 8 + bytes_meta_data.len();
 
                 debug!("Leaf node packed successfully"); 
 
@@ -163,6 +165,8 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
 
                 writer.write_all(&bytes_meta_data.as_ref())?;
                 writer.write_all(&bytes_data.as_ref())?;
+
+                *metadata_size = 4 + 8 + 8 + bytes_meta_data.len();
 
                 debug!("Internal node packed successfully"); 
 

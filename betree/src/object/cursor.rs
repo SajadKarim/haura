@@ -49,6 +49,7 @@ fn convert_res(db_res: Result<u64, (u64, DbError)>) -> io::Result<usize> {
 }
 
 fn convert_err(err: DbError) -> io::Error {
+    panic!("..");
     match err {
         DbError::IoError { source } => source,
         // FIXME: this eats io::Errors hidden deeper into the result chain

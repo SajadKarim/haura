@@ -234,9 +234,12 @@ where
         let offset = op.offset();
         let generation = op.generation();
         //Self::print_type_of(op.checksum());
+
+        let a = Block::round_up_from_bytes(op.metadata_size() as u32);
         let compressed_data = self
             .pool
-            .read(op.size(), op.offset(), op.checksum().clone())?;
+            //.read(op.size(), op.offset(), op.checksum().clone())?;
+            .read(a, op.offset(), op.checksum().clone())?;
         let len = compressed_data.len();
 
         let object: Node<ObjRef<ObjectPointer<SPL::Checksum>>> = {
@@ -390,12 +393,13 @@ where
             .preferred_class()
             .unwrap_or(self.default_storage_class);
 
+        let mut metadata_size = 0;
         let compression = &self.default_compression;
         let compressed_data = {
             // FIXME: cache this
             let mut state = compression.new_compression()?;
             {
-                object.pack(&mut state)?;
+                object.pack(&mut state, &mut metadata_size)?;
                 drop(object);
             }
             state.finish()
@@ -431,6 +435,7 @@ where
             decompression_tag: compression.decompression_tag(),
             generation,
             info,
+            metadata_size,
         };
 
         let was_present;

@@ -188,6 +188,8 @@ impl TestDriver {
 }
 
 #[test]
+//#[rstest]
+//#[timeout(std::time::Duration::from_secs(10))]
 fn insert_single() {
     let mut driver = TestDriver::setup("insert single", 1, 256);
 
