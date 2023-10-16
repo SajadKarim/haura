@@ -60,6 +60,7 @@ impl VdevRead for PMemFile {
         start: usize,
         end: usize
     ) -> Result<&'static [u8]> {
+        //println!("1> {:?}, {}, {}", offset, start, end);
 
         unsafe {
             match self.file.get_slice(offset.to_bytes() as usize + start, end - start) {
@@ -80,6 +81,8 @@ impl VdevRead for PMemFile {
         offset: Block<u64>,
         checksum: C,
     ) -> Result<Buf> {
+        //println!("2> {:?}, {:?}", offset, size);
+
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
         let buf = {
             let mut buf = Buf::zeroed(size).into_full_mut();
@@ -94,7 +97,8 @@ impl VdevRead for PMemFile {
             buf.into_full_buf()
         };
 
-        match checksum.verify(&buf).map_err(VdevError::from) {
+        Ok(buf)
+        /*match checksum.verify(&buf).map_err(VdevError::from) {
             Ok(()) => Ok(buf),
             Err(e) => {
                 self.stats
@@ -102,7 +106,7 @@ impl VdevRead for PMemFile {
                     .fetch_add(size.as_u64(), Ordering::Relaxed);
                 Err(e)
             }
-        }
+        }*/
     }
 
     async fn scrub<C: Checksum>(

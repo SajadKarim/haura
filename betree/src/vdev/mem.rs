@@ -110,6 +110,8 @@ impl VdevRead for Memory {
         start: usize,
         end: usize
     ) -> Result<&'static [u8]> {
+       // println!("1> {:?}, {}, {}", offset, start, end);
+
         self.ref_to_slice(offset, start, end)
     }
 
@@ -119,6 +121,8 @@ impl VdevRead for Memory {
         offset: Block<u64>,
         checksum: C,
     ) -> Result<Buf> {
+        //println!("2> {:?}, {:?}", offset, size);
+
         let buf = self.slice_read(size, offset)?;
 
         Ok(buf)
