@@ -5,7 +5,7 @@ authors = ["tilpner <betree@tilpner.com>"]
 edition = "2018"
 
 [dependencies]
-betree_storage_stack = { path = "..", features = [ "internal-api" ] }
+betree_storage_stack = { path = "..", features = [ "internal-api", "nvm" ] }
 insta = { version = "1.21", features = ["json"] }
 serde_json = "1"
 rstest = "0.13"

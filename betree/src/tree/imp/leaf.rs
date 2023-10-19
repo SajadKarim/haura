@@ -8,7 +8,8 @@ use crate::{
     AtomicStoragePreference, StoragePreference,
     database::RootSpu,
 };
-use std::{borrow::Borrow, collections::BTreeMap, iter::FromIterator};
+use std::{borrow::Borrow, collections::BTreeMap, iter::FromIterator,
+time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 
 //use serde::{Deserialize, Serialize};
 //use rkyv::{Archive, Deserialize, Serialize};
@@ -65,7 +66,9 @@ where S: StoragePoolLayer + 'static*/
     pub data_end: usize,
     pub node_size: crate::vdev::Block<u32>,
     pub checksum: Option<crate::checksum::XxHash>,
-    pub need_to_load_data_from_nvm: bool
+    pub need_to_load_data_from_nvm: bool,
+    pub time_for_nvm_last_fetch: SystemTime,
+    pub nvm_fetch_counter: usize,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Archive, Serialize, Deserialize)]
@@ -235,7 +238,10 @@ where S: StoragePoolLayer + 'static*/
             data_end: 0,
             node_size: crate::vdev::Block(0),
             checksum: None,
-            need_to_load_data_from_nvm: true
+            need_to_load_data_from_nvm: false,
+            time_for_nvm_last_fetch: SystemTime::now(),
+            nvm_fetch_counter: 0,
+
         }
     }
 }
@@ -262,7 +268,9 @@ where S: StoragePoolLayer + 'static*/
             data_end: 0,
             node_size: crate::vdev::Block(0),
             checksum: None,
-            need_to_load_data_from_nvm: true
+            need_to_load_data_from_nvm: false,
+            time_for_nvm_last_fetch: SystemTime::now(),
+            nvm_fetch_counter: 0,
         }
     }    
 
@@ -277,6 +285,18 @@ where S: StoragePoolLayer + 'static*/
             }
             
             if self.disk_offset.is_some() && !self.data.as_ref().unwrap().entries.contains_key(key) {
+
+                if self.time_for_nvm_last_fetch.elapsed().unwrap().as_secs() < 5 {
+                    self.nvm_fetch_counter = self.nvm_fetch_counter + 1;
+
+                    if self.nvm_fetch_counter >= 2 {
+                        return self.get_all_entries();
+                    }
+                } else {
+                    self.nvm_fetch_counter = 0;
+                    self.time_for_nvm_last_fetch = SystemTime::now();
+                }
+
 
                 match self.pool.as_ref().unwrap().slice(self.disk_offset.unwrap(), self.data_start, self.data_end) {
                     Ok(val) => {
@@ -317,6 +337,19 @@ where S: StoragePoolLayer + 'static*/
             }
             
             if self.disk_offset.is_some() && !self.data.as_ref().unwrap().entries.contains_key(key) {
+
+                if self.time_for_nvm_last_fetch.elapsed().unwrap().as_secs() < 5 {
+                    self.nvm_fetch_counter = self.nvm_fetch_counter + 1;
+
+                    if self.nvm_fetch_counter >= 2 {
+                        return self.get_all_entries_mut();
+                    }
+                } else {
+                    self.nvm_fetch_counter = 0;
+                    self.time_for_nvm_last_fetch = SystemTime::now();
+                }
+
+
                 match self.pool.as_ref().unwrap().slice(self.disk_offset.unwrap(), self.data_start, self.data_end) {
                     Ok(val) => {
                         //let archivedleafnodedata: &ArchivedLeafNodeData = unsafe { archived_root::<LeafNodeData>(&val[..]) };
@@ -565,7 +598,10 @@ where S: StoragePoolLayer + 'static*/
             data_end: 0,
             node_size: crate::vdev::Block(0),
             checksum: None,
-            need_to_load_data_from_nvm: true
+            need_to_load_data_from_nvm: false,
+            time_for_nvm_last_fetch: SystemTime::now(),
+            nvm_fetch_counter: 0,
+
         };
 
         // This adjusts sibling's size and pref according to its new entries

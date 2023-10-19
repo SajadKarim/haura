@@ -17,7 +17,9 @@ use crate::{
 //use bincode::serialized_size;
 use parking_lot::RwLock;
 //use serde::{Deserialize, Serialize};
-use std::{borrow::Borrow, collections::BTreeMap, mem::replace, process::id};
+use std::{borrow::Borrow, collections::BTreeMap, mem::replace, process::id,
+time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
+
 use rkyv::{
     archived_root,
     ser::{serializers::AllocSerializer, ScratchSpace, Serializer},
@@ -25,6 +27,8 @@ use rkyv::{
     with::{ArchiveWith, DeserializeWith, SerializeWith},
     Archive, Archived, Deserialize, Fallible, Infallible, Serialize,
 };
+
+use chrono::{DateTime, Utc};
 
 //#[derive(serde::Serialize, serde::Deserialize, Debug, Archive, Serialize, Deserialize)]
 //#[archive(check_bytes)]
@@ -40,7 +44,9 @@ pub(super) struct InternalNode<N: 'static> {
     pub data_end: usize,
     pub node_size: crate::vdev::Block<u32>,
     pub checksum: Option<crate::checksum::XxHash>,
-    pub need_to_load_data_from_nvm: bool
+    pub need_to_load_data_from_nvm: bool,
+    pub time_for_nvm_last_fetch: SystemTime,
+    pub nvm_fetch_counter: usize,
 }
 
 impl<N> std::fmt::Debug for InternalNode<N> {
@@ -116,7 +122,9 @@ static EMPTY_NODE: InternalNode<()> = InternalNode {
     data_end: 0,
     node_size: crate::vdev::Block(0),
     checksum: None,
-    need_to_load_data_from_nvm: true
+    need_to_load_data_from_nvm: false,
+    time_for_nvm_last_fetch: SystemTime::UNIX_EPOCH,// SystemTime::::from(DateTime::parse_from_rfc3339("1996-12-19T16:39:57-00:00").unwrap()),
+    nvm_fetch_counter: 0,
 };
 
 #[inline]
@@ -218,6 +226,22 @@ impl<N: ObjectReference> InternalNode<N> {
             }
 
             if self.disk_offset.is_some() && self.data.as_ref().unwrap().children.len() < idx {
+
+
+
+                if self.time_for_nvm_last_fetch.elapsed().unwrap().as_secs() < 5 {
+                    self.nvm_fetch_counter = self.nvm_fetch_counter + 1;
+
+                    if self.nvm_fetch_counter >= 2 {
+                        return self.load_all_data();
+                    }
+                } else {
+                    self.nvm_fetch_counter = 0;
+                    self.time_for_nvm_last_fetch = SystemTime::now();
+                }
+
+
+
                 self.data.as_mut().unwrap().children.resize_with(idx, || None);
 
 
@@ -316,7 +340,10 @@ impl<N> InternalNode<N> {
             data_end: 0,
             node_size: crate::vdev::Block(0),
             checksum: None,
-            need_to_load_data_from_nvm: true
+            need_to_load_data_from_nvm: false,
+            time_for_nvm_last_fetch: SystemTime::now(),
+            nvm_fetch_counter: 0,
+
         }
     }
 
@@ -683,7 +710,10 @@ impl<N: ObjectReference> InternalNode<N> {
             data_end: 0,
             node_size: crate::vdev::Block(0),
             checksum: None,
-            need_to_load_data_from_nvm: true
+            need_to_load_data_from_nvm: false,
+            time_for_nvm_last_fetch: SystemTime::now(),
+            nvm_fetch_counter: 0,
+
     };
         (
             right_sibling,
@@ -969,7 +999,7 @@ mod tests {
                 data_end: 0,
                 node_size: crate::vdev::Block(0),
                 checksum: None,
-                need_to_load_data_from_nvm: true
+                need_to_load_data_from_nvm: false
             }
         }
     }
@@ -1016,7 +1046,7 @@ mod tests {
                 data_end: 0,
                 node_size: crate::vdev::Block(0),
                 checksum: None,
-                need_to_load_data_from_nvm: true
+                need_to_load_data_from_nvm: false
             }
         }
     }
