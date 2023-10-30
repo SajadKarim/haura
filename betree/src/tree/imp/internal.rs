@@ -122,7 +122,7 @@ static EMPTY_NODE: InternalNode<()> = InternalNode {
     data_end: 0,
     node_size: crate::vdev::Block(0),
     checksum: None,
-    need_to_load_data_from_nvm: false,
+    need_to_load_data_from_nvm: true,
     time_for_nvm_last_fetch: SystemTime::UNIX_EPOCH,// SystemTime::::from(DateTime::parse_from_rfc3339("1996-12-19T16:39:57-00:00").unwrap()),
     nvm_fetch_counter: 0,
 };
@@ -340,7 +340,7 @@ impl<N> InternalNode<N> {
             data_end: 0,
             node_size: crate::vdev::Block(0),
             checksum: None,
-            need_to_load_data_from_nvm: false,
+            need_to_load_data_from_nvm: true,
             time_for_nvm_last_fetch: SystemTime::now(),
             nvm_fetch_counter: 0,
 
@@ -710,7 +710,7 @@ impl<N: ObjectReference> InternalNode<N> {
             data_end: 0,
             node_size: crate::vdev::Block(0),
             checksum: None,
-            need_to_load_data_from_nvm: false,
+            need_to_load_data_from_nvm: true,
             time_for_nvm_last_fetch: SystemTime::now(),
             nvm_fetch_counter: 0,
 
@@ -999,7 +999,7 @@ mod tests {
                 data_end: 0,
                 node_size: crate::vdev::Block(0),
                 checksum: None,
-                need_to_load_data_from_nvm: false
+                need_to_load_data_from_nvm: true
             }
         }
     }
@@ -1046,7 +1046,7 @@ mod tests {
                 data_end: 0,
                 node_size: crate::vdev::Block(0),
                 checksum: None,
-                need_to_load_data_from_nvm: false
+                need_to_load_data_from_nvm: true
             }
         }
     }

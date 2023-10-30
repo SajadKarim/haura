@@ -238,8 +238,8 @@ where
         let a = Block::round_up_from_bytes(op.metadata_size() as u32);
         let compressed_data = self
             .pool
-            .read(op.size(), op.offset(), op.checksum().clone())?;
-            //.read(a, op.offset(), op.checksum().clone())?;
+            //.read(op.size(), op.offset(), op.checksum().clone())?;
+            .read(a, op.offset(), op.checksum().clone())?;
         let len = compressed_data.len();
 
         let object: Node<ObjRef<ObjectPointer<SPL::Checksum>>> = {

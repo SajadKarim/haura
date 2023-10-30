@@ -192,23 +192,23 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
             //let archivedinternalnode: &ArchivedInternalNode<ChildBuffer<_>>  = unsafe { archived_root::<InternalNode<ChildBuffer<R>>>(&data[12..len+12]) };
             let meta_data: InternalNodeMetaData = archivedinternalnodemetadata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-            let archivedinternalnodedata: &ArchivedInternalNodeData<_> = rkyv::check_archived_root::<InternalNodeData<R>>(&data[data_start..data_end]).unwrap();
+            /*let archivedinternalnodedata: &ArchivedInternalNodeData<_> = rkyv::check_archived_root::<InternalNodeData<R>>(&data[data_start..data_end]).unwrap();
             //let archivedinternalnode: &ArchivedInternalNode<ChildBuffer<_>>  = unsafe { archived_root::<InternalNode<ChildBuffer<R>>>(&data[12..len+12]) };
             let data: InternalNodeData<_> = archivedinternalnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-
+*/
             debug!("Leaf node packed successfully"); 
             Ok(Node(Internal (InternalNode {
                 pool: Some(pool),
                 disk_offset: Some(_offset),
                 meta_data : meta_data,
-                data: Some(data),
+                data: None,//Some(data),
                 meta_data_size: meta_data_len,
                 data_size: data_len,
                 data_start: data_start,
                 data_end: data_end,
                 node_size: size,
                 checksum: Some(checksum),                
-                need_to_load_data_from_nvm: false,
+                need_to_load_data_from_nvm: true,
                 time_for_nvm_last_fetch: SystemTime::now(),
                 nvm_fetch_counter: 0,
 
@@ -247,23 +247,23 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
             let meta_data:LeafNodeMetaData = archivedleafnodemetadata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
             
-            let archivedleafnodedata = rkyv::check_archived_root::<LeafNodeData>(&data[data_start..data_end]).unwrap();
+  /*          let archivedleafnodedata = rkyv::check_archived_root::<LeafNodeData>(&data[data_start..data_end]).unwrap();
             //let archivedleafnode: &ArchivedLeafNode = unsafe { archived_root::<LeafNode>(&data) };            
             let data:LeafNodeData = archivedleafnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-            
+    */        
 
             let mut abc = LeafNode {
                 pool: Some(pool),
                 disk_offset: Some(_offset),
                 meta_data : meta_data,
-                data : Some(data),
+                data : None, //Some(data),
                 meta_data_size: meta_data_len,
                 data_size: data_len,
                 data_start: data_start,
                 data_end: data_end,
                 node_size: size,
                 checksum: Some(checksum),
-                need_to_load_data_from_nvm: false,
+                need_to_load_data_from_nvm: true,
                 time_for_nvm_last_fetch: SystemTime::now(),
                 nvm_fetch_counter: 0,
 

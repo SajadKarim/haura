@@ -238,7 +238,7 @@ where S: StoragePoolLayer + 'static*/
             data_end: 0,
             node_size: crate::vdev::Block(0),
             checksum: None,
-            need_to_load_data_from_nvm: false,
+            need_to_load_data_from_nvm: true,
             time_for_nvm_last_fetch: SystemTime::now(),
             nvm_fetch_counter: 0,
 
@@ -268,7 +268,7 @@ where S: StoragePoolLayer + 'static*/
             data_end: 0,
             node_size: crate::vdev::Block(0),
             checksum: None,
-            need_to_load_data_from_nvm: false,
+            need_to_load_data_from_nvm: true,
             time_for_nvm_last_fetch: SystemTime::now(),
             nvm_fetch_counter: 0,
         }
@@ -598,7 +598,7 @@ where S: StoragePoolLayer + 'static*/
             data_end: 0,
             node_size: crate::vdev::Block(0),
             checksum: None,
-            need_to_load_data_from_nvm: false,
+            need_to_load_data_from_nvm: true,
             time_for_nvm_last_fetch: SystemTime::now(),
             nvm_fetch_counter: 0,
 
