@@ -1,6 +1,6 @@
-//! Implementation of the [InternalNode] node type.
+//! Implementation of the [NVMInternalNode] node type.
 use super::{
-    child_buffer::ChildBuffer,
+    child_buffer::NVMChildBuffer,
     node::{PivotGetMutResult, PivotGetResult},
     PivotKey,
 };
@@ -33,7 +33,7 @@ use chrono::{DateTime, Utc};
 //#[derive(serde::Serialize, serde::Deserialize, Debug, Archive, Serialize, Deserialize)]
 //#[archive(check_bytes)]
 //#[cfg_attr(test, derive(PartialEq))]
-pub(super) struct InternalNode<N: 'static> {
+pub(super) struct NVMInternalNode<N: 'static> {
     pub pool: Option<RootSpu>,
     pub disk_offset: Option<DiskOffset>,
     pub meta_data: InternalNodeMetaData,
@@ -49,7 +49,7 @@ pub(super) struct InternalNode<N: 'static> {
     pub nvm_fetch_counter: usize,
 }
 
-impl<N> std::fmt::Debug for InternalNode<N> {
+impl<N> std::fmt::Debug for NVMInternalNode<N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "sdf")
     }
@@ -72,12 +72,12 @@ pub(super) struct InternalNodeMetaData {
 #[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
 pub(super) struct InternalNodeData<N: 'static> {
-    pub children: Vec<Option<ChildBuffer<N>>>,
+    pub children: Vec<Option<NVMChildBuffer<N>>>,
 }
 
 // @tilpner:
 // Previously, this literal was magically spread across the code below, and I've (apparently
-// correctly) guessed it to be the fixed size of an empty InternalNode<_> when encoded with bincode.
+// correctly) guessed it to be the fixed size of an empty NVMInternalNode<_> when encoded with bincode.
 // I've added a test below to verify this and to ensure any bincode-sided change is noticed.
 // This is still wrong because:
 //
@@ -103,7 +103,7 @@ pub(super) struct InternalNodeData<N: 'static> {
 
 // NOTE: Waiting for OnceCell to be stabilized...
 // https://doc.rust-lang.org/stable/std/cell/struct.OnceCell.html
-static EMPTY_NODE: InternalNode<()> = InternalNode {
+static EMPTY_NODE: NVMInternalNode<()> = NVMInternalNode {
     pool: None,
     disk_offset: None,
     meta_data: InternalNodeMetaData {
@@ -144,7 +144,7 @@ fn internal_node_base_size() -> usize {
 }
 
 
-impl<N: StaticSize> Size for InternalNode<N> {
+impl<N: StaticSize> Size for NVMInternalNode<N> {
     fn size(&self) -> usize {
         internal_node_base_size() + self.meta_data.entries_size
     }
@@ -166,7 +166,7 @@ impl<N: StaticSize> Size for InternalNode<N> {
     }
 }
 
-impl<N: HasStoragePreference> HasStoragePreference for InternalNode<N> {
+impl<N: HasStoragePreference> HasStoragePreference for NVMInternalNode<N> {
     fn current_preference(&mut self) -> Option<StoragePreference> {
         self.meta_data.pref
             .as_option()
@@ -210,7 +210,7 @@ impl<N: HasStoragePreference> HasStoragePreference for InternalNode<N> {
     }
 }
 
-impl<N: ObjectReference> InternalNode<N> {
+impl<N: ObjectReference> NVMInternalNode<N> {
     pub(in crate::tree) fn load_entry(&mut self, idx: usize) -> Result<(), std::io::Error> {
         // This method ensures the data part is fully loaded before performing an operation that requires all the entries.
         // However, a better approach can be to load the pairs that are required (so it is a TODO!)
@@ -250,7 +250,7 @@ impl<N: ObjectReference> InternalNode<N> {
 
                         let archivedinternalnodedata: &ArchivedInternalNodeData<_> = rkyv::check_archived_root::<InternalNodeData<N>>(&val[..]).unwrap();
                         
-                        let val: Option<ChildBuffer<N>> = archivedinternalnodedata.children[idx].deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).unwrap();
+                        let val: Option<NVMChildBuffer<N>> = archivedinternalnodedata.children[idx].deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).unwrap();
                         
                         self.data.as_mut().unwrap().children.insert(idx, val);
                         
@@ -269,7 +269,7 @@ impl<N: ObjectReference> InternalNode<N> {
 
                         let archivedinternalnodedata: &ArchivedInternalNodeData<_> = rkyv::check_archived_root::<InternalNodeData<N>>(&bytes[self.data_start..self.data_end]).unwrap();
                         
-                        let val: Option<ChildBuffer<N>> = archivedinternalnodedata.children[idx].deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).unwrap();
+                        let val: Option<NVMChildBuffer<N>> = archivedinternalnodedata.children[idx].deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).unwrap();
                         
                         self.data.as_mut().unwrap().children.insert(idx, val);
                         //let node: InternalNodeData<_> = archivedinternalnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -316,12 +316,12 @@ impl<N: ObjectReference> InternalNode<N> {
     }
 }
 
-impl<N> InternalNode<N> {
-    pub fn new(left_child: ChildBuffer<N>, right_child: ChildBuffer<N>, pivot_key: CowBytes, level: u32) -> Self
+impl<N> NVMInternalNode<N> {
+    pub fn new(left_child: NVMChildBuffer<N>, right_child: NVMChildBuffer<N>, pivot_key: CowBytes, level: u32) -> Self
     where
         N: StaticSize,
     {
-        InternalNode {
+        NVMInternalNode {
             pool: None,
             disk_offset: None,
             meta_data: InternalNodeMetaData { 
@@ -382,19 +382,19 @@ impl<N> InternalNode<N> {
         }
     }
 
-    pub fn iter(&mut self) -> impl Iterator<Item = &Option<ChildBuffer<N>>> + '_ where N: ObjectReference{
+    pub fn iter(&mut self) -> impl Iterator<Item = &Option<NVMChildBuffer<N>>> + '_ where N: ObjectReference{
         self.load_all_data();
         self.data.as_ref().unwrap().children.iter()
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Option<ChildBuffer<N>>> + '_  where N: ObjectReference {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Option<NVMChildBuffer<N>>> + '_  where N: ObjectReference {
         self.load_all_data();
         self.data.as_mut().unwrap().children.iter_mut()
     }
 
     pub fn iter_with_bounds(
         &mut self,
-    ) -> impl Iterator<Item = (Option<&CowBytes>, &Option<ChildBuffer<N>>, Option<&CowBytes>)> + '_  where N: ObjectReference{
+    ) -> impl Iterator<Item = (Option<&CowBytes>, &Option<NVMChildBuffer<N>>, Option<&CowBytes>)> + '_  where N: ObjectReference{
         self.load_all_data();
 
         let ref pivot = self.meta_data.pivot;
@@ -414,7 +414,7 @@ impl<N> InternalNode<N> {
     }
 }
 
-impl<N> InternalNode<N> {
+impl<N> NVMInternalNode<N> {
     pub fn get(&mut self, key: &[u8]) -> (&mut RwLock<N>, Option<(KeyInfo, SlicedCowBytes)>)  where N: ObjectReference{
         let idx = self.idx(key);
         self.load_entry(idx);
@@ -606,7 +606,7 @@ impl<N> InternalNode<N> {
     }
 }
 
-impl<N: StaticSize + HasStoragePreference> InternalNode<N> {
+impl<N: StaticSize + HasStoragePreference> NVMInternalNode<N> {
     pub fn range_delete(
         &mut self,
         start: &[u8],
@@ -669,7 +669,7 @@ impl<N: StaticSize + HasStoragePreference> InternalNode<N> {
     }
 }
 
-impl<N: ObjectReference> InternalNode<N> {
+impl<N: ObjectReference> NVMInternalNode<N> {
     pub fn split(&mut self) -> (Self, CowBytes, isize, LocalPivotKey) {
         self.meta_data.pref.invalidate();
         let split_off_idx = self.fanout() / 2;
@@ -689,7 +689,7 @@ impl<N: ObjectReference> InternalNode<N> {
         let size_delta = entries_size + pivot_key.size();
         self.meta_data.entries_size -= size_delta;
 
-        let right_sibling = InternalNode {
+        let right_sibling = NVMInternalNode {
             pool: None,
             disk_offset: None,
             meta_data: InternalNodeMetaData { 
@@ -736,14 +736,14 @@ impl<N: ObjectReference> InternalNode<N> {
         size_delta as isize
     }
 
-    /// Translate any object ref in a `ChildBuffer` from `Incomplete` to `Unmodified` state.
+    /// Translate any object ref in a `NVMChildBuffer` from `Incomplete` to `Unmodified` state.
     pub fn complete_object_refs(mut self, d_id: DatasetId) -> Self {
         self.load_all_data(); // TODO: this is done to fix borrow error on line 670 (this line 655). Better way is to fetch only the data for required ids.
         // TODO:
         let first_pk = match self.meta_data.pivot.first() {
             Some(p) => PivotKey::LeftOuter(p.clone(), d_id),
             None => unreachable!(
-                "The store contains an empty InternalNode, this should never be the case."
+                "The store contains an empty NVMInternalNode, this should never be the case."
             ),
         };
         for (id, pk) in [first_pk]
@@ -759,7 +759,7 @@ impl<N: ObjectReference> InternalNode<N> {
     }
 }
 
-impl<N: HasStoragePreference> InternalNode<N>
+impl<N: HasStoragePreference> NVMInternalNode<N>
 where
     N: StaticSize,
     N: ObjectReference
@@ -812,7 +812,7 @@ where
 }
 
 pub(super) struct TakeChildBuffer<'a, N: 'a + 'static> {
-    node: &'a mut InternalNode<N>,
+    node: &'a mut NVMInternalNode<N>,
     child_idx: usize,
 }
 
@@ -867,7 +867,7 @@ where
 }
 
 pub(super) struct PrepareMergeChild<'a, N: 'a + 'static> {
-    node: &'a mut InternalNode<N>,
+    node: &'a mut NVMInternalNode<N>,
     pivot_key_idx: usize,
     other_child_idx: usize,
 }
@@ -894,7 +894,7 @@ impl<'a, N: Size + HasStoragePreference> PrepareMergeChild<'a, N> {
         let mut right_sibling = self.node.data.as_mut().unwrap().children.remove(self.pivot_key_idx + 1).unwrap();
         let pivot_key = self.node.meta_data.pivot.remove(self.pivot_key_idx);
         let size_delta =
-            pivot_key.size() + ChildBuffer::<N>::static_size() + right_sibling.node_pointer.size();
+            pivot_key.size() + NVMChildBuffer::<N>::static_size() + right_sibling.node_pointer.size();
         self.node.meta_data.entries_size -= size_delta;
 
         let left_sibling = &mut self.node.data.as_mut().unwrap().children[self.pivot_key_idx].as_mut().unwrap();
@@ -912,7 +912,7 @@ impl<'a, N: Size + HasStoragePreference> PrepareMergeChild<'a, N> {
 }
 
 impl<'a, N: Size + HasStoragePreference> PrepareMergeChild<'a, N> {
-    fn get_children(&mut self) -> (&mut Option<ChildBuffer<N>>, &mut Option<ChildBuffer<N>>)  where N: ObjectReference{
+    fn get_children(&mut self) -> (&mut Option<NVMChildBuffer<N>>, &mut Option<NVMChildBuffer<N>>)  where N: ObjectReference{
         self.node.load_all_data();
         let (left, right) = self.node.data.as_mut().unwrap().children[self.pivot_key_idx..].split_at_mut(1);
         (&mut left[0], &mut right[0])
@@ -978,9 +978,9 @@ mod tests {
         }
     }
 
-    impl<T: Clone> Clone for InternalNode<T> {
+    impl<T: Clone> Clone for NVMInternalNode<T> {
         fn clone(&self) -> Self {
-            InternalNode {
+            NVMInternalNode {
                 pool: self.pool.clone(),
                 disk_offset: self.disk_offset.clone(),    
                 meta_data: InternalNodeMetaData { 
@@ -1004,7 +1004,7 @@ mod tests {
         }
     }
 
-    impl<T: Arbitrary + Size> Arbitrary for InternalNode<T> {
+    impl<T: Arbitrary + Size> Arbitrary for NVMInternalNode<T> {
         fn arbitrary(g: &mut Gen) -> Self {
             let mut rng = g.rng();
             let pivot_key_cnt = rng.gen_range(1..20);
@@ -1024,7 +1024,7 @@ mod tests {
                 children.push(Some(child));
             }
 
-            InternalNode {
+            NVMInternalNode {
                 pool: None,
                 disk_offset: None,
                 meta_data: InternalNodeMetaData {
@@ -1051,7 +1051,7 @@ mod tests {
         }
     }
 
-    fn check_size<T: Serialize + Size>(node: &mut InternalNode<T>) {
+    fn check_size<T: Serialize + Size>(node: &mut NVMInternalNode<T>) {
         /*assert_eq!( //TODO: Sajad Karim, fix it
             node.size() as u64,
             serialized_size(node).unwrap(),
@@ -1060,12 +1060,12 @@ mod tests {
     }
 
     #[quickcheck]
-    fn check_serialize_size(mut node: InternalNode<CowBytes>) {
+    fn check_serialize_size(mut node: NVMInternalNode<CowBytes>) {
         check_size(&mut node);
     }
 
     #[quickcheck]
-    fn check_idx(node: InternalNode<()>, key: Key) {
+    fn check_idx(node: NVMInternalNode<()>, key: Key) {
         let key = key.0;
         let idx = node.idx(&key);
 
@@ -1080,7 +1080,7 @@ mod tests {
 
     #[quickcheck]
     fn check_size_insert_single(
-        mut node: InternalNode<ChildBuffer<()>>,
+        mut node: NVMInternalNode<NVMChildBuffer<()>>,
         key: Key,
         keyinfo: KeyInfo,
         msg: DefaultMessageActionMsg,
@@ -1094,7 +1094,7 @@ mod tests {
 
     #[quickcheck]
     fn check_size_insert_msg_buffer(
-        mut node: InternalNode<ChildBuffer<()>>,
+        mut node: NVMInternalNode<NVMChildBuffer<()>>,
         buffer: BTreeMap<Key, (KeyInfo, DefaultMessageActionMsg)>,
     ) {
         /*let size_before = node.size() as isize;
@@ -1115,7 +1115,7 @@ mod tests {
 
     #[quickcheck]
     fn check_insert_msg_buffer(
-        mut node: InternalNode<ChildBuffer<()>>,
+        mut node: NVMInternalNode<NVMChildBuffer<()>>,
         buffer: BTreeMap<Key, (KeyInfo, DefaultMessageActionMsg)>,
     ) {
         /*let mut node_twin = node.clone();
@@ -1178,7 +1178,7 @@ mod tests {
     }
 
     #[quickcheck]
-    fn check_size_split(mut node: InternalNode<ChildBuffer<()>>) -> TestResult {
+    fn check_size_split(mut node: NVMInternalNode<NVMChildBuffer<()>>) -> TestResult {
         /*if node.fanout() < 2 {
             return TestResult::discard();
         }
@@ -1193,7 +1193,7 @@ mod tests {
     }
 
     #[quickcheck]
-    fn check_split(mut node: InternalNode<ChildBuffer<()>>) -> TestResult {
+    fn check_split(mut node: NVMInternalNode<NVMChildBuffer<()>>) -> TestResult {
         /*if node.fanout() < 4 {
             return TestResult::discard();
         }
@@ -1214,7 +1214,7 @@ mod tests {
     }
 
     #[quickcheck]
-    fn check_split_key(mut node: InternalNode<ChildBuffer<()>>) -> TestResult {
+    fn check_split_key(mut node: NVMInternalNode<NVMChildBuffer<()>>) -> TestResult {
         /*if node.fanout() < 4 {
             return TestResult::discard();
         }
@@ -1227,7 +1227,7 @@ mod tests {
 
     // #[test]
     // fn check_constant() {
-    //     let node: InternalNode<ChildBuffer<()>> = InternalNode {
+    //     let node: NVMInternalNode<NVMChildBuffer<()>> = NVMInternalNode {
     //         entries_size: 0,
     //         level: 1,
     //         children: vec![],

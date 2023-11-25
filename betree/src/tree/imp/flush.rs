@@ -6,14 +6,14 @@
 use std::borrow::Borrow;
 
 use super::{
-    child_buffer::ChildBuffer, derivate_ref::DerivateRef, internal::TakeChildBuffer, FillUpResult,
+    child_buffer::NVMChildBuffer, derivate_ref::DerivateRef, nvminternal::TakeChildBuffer, FillUpResult,
     Inner, Node, Tree,
 };
 use crate::{
     cache::AddSize,
     data_management::{Dml, HasStoragePreference, ObjectReference},
     size::Size,
-    tree::{errors::*, imp::internal::MergeChildResult, MessageAction},
+    tree::{errors::*, imp::nvminternal::MergeChildResult, MessageAction},
 };
 
 impl<X, R, M, I> Tree<X, M, I>

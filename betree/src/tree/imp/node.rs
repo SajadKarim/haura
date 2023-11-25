@@ -1,9 +1,9 @@
 //! Implementation of the generic node wrapper.
 use self::Inner::*;
 use super::{
-    child_buffer::ChildBuffer,
-    internal::{InternalNode, TakeChildBuffer},
-    leaf::{NVMLeafNode, NVMLeafNodeMetaData, NVMLeafNodeData},
+    child_buffer::NVMChildBuffer,
+    nvminternal::{NVMInternalNode, TakeChildBuffer},
+    nvmleaf::{NVMLeafNode, NVMLeafNodeMetaData, NVMLeafNodeData},
     packed::PackedMap,
     FillUpResult, KeyInfo, PivotKey, MAX_INTERNAL_NODE_SIZE, MAX_LEAF_NODE_SIZE, MIN_FANOUT,
     MIN_FLUSH_SIZE, MIN_LEAF_NODE_SIZE,
@@ -14,7 +14,7 @@ use crate::{
     database::{DatasetId,RootSpu},
     size::{Size, SizeMut, StaticSize},
     storage_pool::{DiskOffset, StoragePoolLayer},
-    tree::{pivot_key::LocalPivotKey, MessageAction, imp::{/*leaf::ArchivedNVMLeafNode,*/ internal::{InternalNodeMetaData, ArchivedInternalNodeMetaData, ArchivedInternalNodeData, InternalNodeData}}},
+    tree::{pivot_key::LocalPivotKey, MessageAction, imp::{/*leaf::ArchivedNVMLeafNode,*/ nvminternal::{InternalNodeMetaData, ArchivedInternalNodeMetaData, ArchivedInternalNodeData, InternalNodeData}}},
     StoragePreference,
 };
 use bincode::{deserialize, serialize_into};
@@ -55,7 +55,7 @@ pub(super) enum Inner<N: 'static>
 {
     PackedLeaf(PackedMap),
     Leaf(NVMLeafNode),
-    Internal(InternalNode<N>),
+    Internal(NVMInternalNode<N>),
 }
 
 impl<R: HasStoragePreference + StaticSize> HasStoragePreference for Node<R>/*, S> 
@@ -189,15 +189,15 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
             let data_end = data_start + data_len;   
 
             let archivedinternalnodemetadata: &ArchivedInternalNodeMetaData = rkyv::check_archived_root::<InternalNodeMetaData>(&data[meta_data_start..meta_data_end]).unwrap();
-            //let archivedinternalnode: &ArchivedInternalNode<ChildBuffer<_>>  = unsafe { archived_root::<InternalNode<ChildBuffer<R>>>(&data[12..len+12]) };
+            //let archivedinternalnode: &ArchivedInternalNode<NVMChildBuffer<_>>  = unsafe { archived_root::<NVMInternalNode<NVMChildBuffer<R>>>(&data[12..len+12]) };
             let meta_data: InternalNodeMetaData = archivedinternalnodemetadata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
             /*let archivedinternalnodedata: &ArchivedInternalNodeData<_> = rkyv::check_archived_root::<InternalNodeData<R>>(&data[data_start..data_end]).unwrap();
-            //let archivedinternalnode: &ArchivedInternalNode<ChildBuffer<_>>  = unsafe { archived_root::<InternalNode<ChildBuffer<R>>>(&data[12..len+12]) };
+            //let archivedinternalnode: &ArchivedInternalNode<NVMChildBuffer<_>>  = unsafe { archived_root::<NVMInternalNode<NVMChildBuffer<R>>>(&data[12..len+12]) };
             let data: InternalNodeData<_> = archivedinternalnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 */
             debug!("Leaf node packed successfully"); 
-            Ok(Node(Internal (InternalNode {
+            Ok(Node(Internal (NVMInternalNode {
                 pool: Some(pool),
                 disk_offset: Some(_offset),
                 meta_data : meta_data,
@@ -214,7 +214,7 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
 
             }.complete_object_refs(d_id))))
 
-            /*match deserialize::<InternalNode<_>>(&data[4..]) {
+            /*match deserialize::<NVMInternalNode<_>>(&data[4..]) {
                 Ok(internal) => Ok(Node(Internal(internal.complete_object_refs(d_id)))),
                 Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
             }*/
@@ -467,12 +467,12 @@ impl<N: ObjectReference + StaticSize + HasStoragePreference> Node<N>
             }
         };
         debug!("Root split pivot key: {:?}", pivot_key);
-        *self = Node(Internal(InternalNode::new(
-            ChildBuffer::new(allocate_obj(
+        *self = Node(Internal(NVMInternalNode::new(
+            NVMChildBuffer::new(allocate_obj(
                 left_sibling,
                 LocalPivotKey::LeftOuter(pivot_key.clone()),
             )),
-            ChildBuffer::new(allocate_obj(
+            NVMChildBuffer::new(allocate_obj(
                 right_sibling,
                 LocalPivotKey::Right(pivot_key.clone()),
             )),

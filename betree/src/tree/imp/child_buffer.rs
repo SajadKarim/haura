@@ -1,6 +1,6 @@
 //! Implementation of a message buffering node wrapper.
 //!
-//! Encapsulating common nodes like [super::internal::InternalNode] and
+//! Encapsulating common nodes like [super::internal::NVMInternalNode] and
 //! [super::leaf::NVMNVMLeafNode].
 use crate::{
     cow_bytes::{CowBytes, SlicedCowBytes},
@@ -35,7 +35,7 @@ pub struct NodePointerResolver {
 #[derive(serde::Serialize, serde::Deserialize, Debug, Archive, Serialize, Deserialize)]
 #[archive(check_bytes)]
 //#[serde(bound(serialize = "N: Serialize", deserialize = "N: Deserialize<'de>"))]
-pub(super) struct ChildBuffer<N: 'static> {
+pub(super) struct NVMChildBuffer<N: 'static> {
     pub(super) messages_preference: AtomicStoragePreference,
     //#[serde(skip)]
     pub(super) system_storage_preference: AtomicSystemStoragePreference,
@@ -94,7 +94,7 @@ impl Size for (KeyInfo, SlicedCowBytes) {
     }
 }
 
-impl<N: HasStoragePreference> HasStoragePreference for ChildBuffer<N> {
+impl<N: HasStoragePreference> HasStoragePreference for NVMChildBuffer<N> {
     fn current_preference(&mut self) -> Option<StoragePreference> {
         self.messages_preference
             .as_option()
@@ -142,7 +142,7 @@ impl<N: HasStoragePreference> HasStoragePreference for ChildBuffer<N> {
     }
 }
 
-impl<N: ObjectReference> ChildBuffer<N> {
+impl<N: ObjectReference> NVMChildBuffer<N> {
     /// Access the pivot key of the underlying object reference and update it to
     /// reflect a structural change in the tree.
     pub fn update_pivot_key(&mut self, lpk: LocalPivotKey) {
@@ -181,7 +181,7 @@ mod ser_np {
     }
 }
 
-impl<N: StaticSize> Size for ChildBuffer<N> {
+impl<N: StaticSize> Size for NVMChildBuffer<N> {
     fn size(&self) -> usize {
         Self::static_size() + self.buffer_entries_size + N::static_size()
     }
@@ -199,7 +199,7 @@ impl<N: StaticSize> Size for ChildBuffer<N> {
     }
 }
 
-impl<N> ChildBuffer<N> {
+impl<N> NVMChildBuffer<N> {
     pub fn static_size() -> usize {
         17
     }
@@ -224,7 +224,7 @@ impl<N> ChildBuffer<N> {
     }
 }
 
-impl<N> ChildBuffer<N> {
+impl<N> NVMChildBuffer<N> {
     /// Returns an iterator over all messages.
     pub fn get_all_messages(
         &self,
@@ -232,7 +232,7 @@ impl<N> ChildBuffer<N> {
         self.buffer.iter().map(|(key, msg)| (key, msg))
     }
 
-    /// Takes the message buffer out this `ChildBuffer`,
+    /// Takes the message buffer out this `NVMChildBuffer`,
     /// leaving an empty one in its place.
     pub fn take(&mut self) -> (BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)>, usize) {
         self.messages_preference.invalidate();
@@ -249,12 +249,12 @@ impl<N> ChildBuffer<N> {
             .upgrade_atomic(&other.messages_preference);
     }
 
-    /// Splits this `ChildBuffer` at `pivot`
+    /// Splits this `NVMChildBuffer` at `pivot`
     /// so that `self` contains all entries up to (and including) `pivot_key`
     /// and the returned `Self` contains the other entries and `node_pointer`.
     pub fn split_at(&mut self, pivot: &CowBytes, node_pointer: N) -> Self {
         let (buffer, buffer_entries_size) = self.split_off(pivot);
-        ChildBuffer {
+        NVMChildBuffer {
             messages_preference: AtomicStoragePreference::unknown(),
             buffer,
             buffer_entries_size,
@@ -328,7 +328,7 @@ impl<N> ChildBuffer<N> {
 
     /// Constructs a new, empty buffer.
     pub fn new(node_pointer: N) -> Self {
-        ChildBuffer {
+        NVMChildBuffer {
             messages_preference: AtomicStoragePreference::known(StoragePreference::NONE),
             buffer: BTreeMap::new(),
             buffer_entries_size: 0,
@@ -338,7 +338,7 @@ impl<N> ChildBuffer<N> {
     }
 }
 
-impl<N> ChildBuffer<N> {
+impl<N> NVMChildBuffer<N> {
     pub fn range_delete(&mut self, start: &[u8], end: Option<&[u8]>) -> usize {
         // Context: Previously we mentioned the usage of a drain filter here and
         // linked to an existing issue of how it is missing from the standard
@@ -377,9 +377,9 @@ mod tests {
     use quickcheck::{Arbitrary, Gen};
     use rand::Rng;
 
-    impl<N: Clone> Clone for ChildBuffer<N> {
+    impl<N: Clone> Clone for NVMChildBuffer<N> {
         fn clone(&self) -> Self {
-            ChildBuffer {
+            NVMChildBuffer {
                 messages_preference: self.messages_preference.clone(),
                 buffer_entries_size: self.buffer_entries_size,
                 buffer: self.buffer.clone(),
@@ -389,7 +389,7 @@ mod tests {
         }
     }
 
-    impl<N: PartialEq> PartialEq for ChildBuffer<N> {
+    impl<N: PartialEq> PartialEq for NVMChildBuffer<N> {
         fn eq(&self, other: &Self) -> bool {
             self.buffer_entries_size == other.buffer_entries_size
                 && self.buffer == other.buffer
@@ -397,7 +397,7 @@ mod tests {
         }
     }
 
-    impl<N: Arbitrary> Arbitrary for ChildBuffer<N> {
+    impl<N: Arbitrary> Arbitrary for NVMChildBuffer<N> {
         fn arbitrary(g: &mut Gen) -> Self {
             let mut rng = g.rng();
             let entries_cnt = rng.gen_range(0..20);
@@ -412,7 +412,7 @@ mod tests {
                     )
                 })
                 .collect();
-            ChildBuffer {
+            NVMChildBuffer {
                 messages_preference: AtomicStoragePreference::unknown(),
                 buffer_entries_size: buffer
                     .iter()
@@ -428,7 +428,7 @@ mod tests {
     }
 
     #[quickcheck]
-    fn check_serialize_size(child_buffer: ChildBuffer<()>) {
+    fn check_serialize_size(child_buffer: NVMChildBuffer<()>) {
         assert_eq!(
             child_buffer.size(),
             serialized_size(&child_buffer).unwrap() as usize
@@ -438,7 +438,7 @@ mod tests {
     }
 
     #[quickcheck]
-    fn check_size_split_at(mut child_buffer: ChildBuffer<()>, pivot_key: CowBytes) {
+    fn check_size_split_at(mut child_buffer: NVMChildBuffer<()>, pivot_key: CowBytes) {
         let size_before = child_buffer.size();
         let sibling = child_buffer.split_at(&pivot_key, ());
         assert_eq!(
@@ -453,7 +453,7 @@ mod tests {
     }
 
     #[quickcheck]
-    fn check_split_at(mut child_buffer: ChildBuffer<()>, pivot_key: CowBytes) {
+    fn check_split_at(mut child_buffer: NVMChildBuffer<()>, pivot_key: CowBytes) {
         let this = child_buffer.clone();
         let mut sibling = child_buffer.split_at(&pivot_key, ());
         assert!(child_buffer

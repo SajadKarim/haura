@@ -18,7 +18,7 @@ use crate::{
     tree::MessageAction,
     StoragePreference,
 };
-use leaf::FillUpResult;
+use nvmleaf::FillUpResult;
 use owning_ref::OwningRef;
 use parking_lot::{RwLock, RwLockWriteGuard};
 use std::{borrow::Borrow, marker::PhantomData, mem, ops::RangeBounds};
@@ -566,8 +566,8 @@ where
 mod child_buffer;
 mod derivate_ref;
 mod flush;
-mod internal;
-mod leaf;
+mod nvminternal;
+mod nvmleaf;
 mod node;
 mod packed;
 mod range;

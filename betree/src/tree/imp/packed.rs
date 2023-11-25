@@ -1,7 +1,7 @@
 //! On-disk representation of a node.
 //!
 //! Can be used for read-only access to avoid deserialization.
-use super::leaf::NVMLeafNode;
+use super::nvmleaf::NVMLeafNode;
 use crate::{
     cow_bytes::{CowBytes, SlicedCowBytes},
     data_management::HasStoragePreference,
