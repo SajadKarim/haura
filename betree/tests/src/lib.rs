@@ -31,8 +31,8 @@ fn test_db(tiers: u32, mb_per_tier: u32) -> Database {
         storage: StoragePoolConfiguration {
             tiers: (0..tiers)
                 .map(|_| TierConfiguration {
-                    //top_level_vdevs: vec![Vdev::Leaf(LeafVdev::Memory { mem: tier_size })],
-                    top_level_vdevs: vec![Vdev::Leaf(LeafVdev::PMemFile {path: std::path::PathBuf::from("/home/wuensche/pool/pool01"), len:25*1024*1024*1024})],
+                    top_level_vdevs: vec![Vdev::Leaf(LeafVdev::Memory { mem: tier_size })],
+                    //top_level_vdevs: vec![Vdev::Leaf(LeafVdev::PMemFile {path: std::path::PathBuf::from("/home/wuensche/pool/pool01"), len:25*1024*1024*1024})],
                     ..Default::default()
                 })
                 .collect(),
