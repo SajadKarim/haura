@@ -1,7 +1,7 @@
 //! Implementation of a message buffering node wrapper.
 //!
 //! Encapsulating common nodes like [super::internal::InternalNode] and
-//! [super::leaf::LeafNode].
+//! [super::leaf::NVMNVMLeafNode].
 use crate::{
     cow_bytes::{CowBytes, SlicedCowBytes},
     data_management::{HasStoragePreference, ObjectReference, impls::ObjRef, ObjectPointer},

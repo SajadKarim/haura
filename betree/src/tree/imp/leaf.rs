@@ -1,4 +1,4 @@
-//! Implementation of the [LeafNode] node type.
+//! Implementation of the [NVMLeafNode] node type.
 use crate::{
     cow_bytes::{CowBytes, SlicedCowBytes},
     data_management::HasStoragePreference,
@@ -51,15 +51,15 @@ impl<T> Option<T> {
 #[derive(Clone)]
 //#[archive(check_bytes)]
 //#[cfg_attr(test, derive(PartialEq))]
-pub(super) struct LeafNode/*<S> 
+pub(super) struct NVMLeafNode/*<S> 
 where S: StoragePoolLayer + 'static*/
 { 
     //#[with(Skip)]
     pub pool: Option<RootSpu>,
     pub disk_offset: Option<DiskOffset>,
-    pub meta_data: LeafNodeMetaData,
-    pub data: Option<LeafNodeData>,
-    //pub data: LeafNodeData,
+    pub meta_data: NVMLeafNodeMetaData,
+    pub data: Option<NVMLeafNodeData>,
+    //pub data: NVMLeafNodeData,
     pub meta_data_size: usize,
     pub data_size: usize,
     pub data_start: usize,
@@ -74,7 +74,7 @@ where S: StoragePoolLayer + 'static*/
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Archive, Serialize, Deserialize)]
 #[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
-pub(super) struct LeafNodeMetaData {
+pub(super) struct NVMLeafNodeMetaData {
     pub storage_preference: AtomicStoragePreference,
     /// A storage preference assigned by the Migration Policy
     pub system_storage_preference: AtomicSystemStoragePreference,
@@ -85,12 +85,12 @@ pub(super) struct LeafNodeMetaData {
 #[archive(check_bytes)]
 #[cfg_attr(test, derive(PartialEq))]
 
-pub struct LeafNodeData {
+pub struct NVMLeafNodeData {
     #[with(rkyv::with::AsVec)]
     pub entries: BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)>,
 }
 
-impl std::fmt::Debug for LeafNode {
+impl std::fmt::Debug for NVMLeafNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "todo...")
     }
@@ -118,7 +118,7 @@ pub(super) enum FillUpResult {
     },
 }
 
-impl Size for LeafNode/*<S> 
+impl Size for NVMLeafNode/*<S> 
 where S: StoragePoolLayer + 'static*/
 {
     fn size(&self) -> usize {
@@ -137,7 +137,7 @@ where S: StoragePoolLayer + 'static*/
     }
 }
 
-impl HasStoragePreference for LeafNode/*<S>
+impl HasStoragePreference for NVMLeafNode/*<S>
 where S: StoragePoolLayer + 'static*/
 {
     fn current_preference(&mut self) -> Option<StoragePreference> {
@@ -177,7 +177,7 @@ where S: StoragePoolLayer + 'static*/
     }
 }
 
-impl<'a> FromIterator<(&'a [u8], (KeyInfo, SlicedCowBytes))> for LeafNode/*<S> 
+impl<'a> FromIterator<(&'a [u8], (KeyInfo, SlicedCowBytes))> for NVMLeafNode/*<S> 
 where S: StoragePoolLayer + 'static*/
 {
     fn from_iter<T>(iter: T) -> Self
@@ -221,15 +221,15 @@ where S: StoragePoolLayer + 'static*/
             }
         }
 
-        LeafNode {
+        NVMLeafNode {
             pool: None,
             disk_offset: None,
-            meta_data: LeafNodeMetaData { 
+            meta_data: NVMLeafNodeMetaData { 
                 storage_preference: AtomicStoragePreference::known(storage_pref),
                 system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
                 entries_size
             },
-            data: Some(LeafNodeData { 
+            data: Some(NVMLeafNodeData { 
                 entries: entries
             }),
             meta_data_size: 0,
@@ -246,20 +246,20 @@ where S: StoragePoolLayer + 'static*/
     }
 }
 
-impl LeafNode/*<S>
+impl NVMLeafNode/*<S>
 where S: StoragePoolLayer + 'static*/
 {
-    /// Constructs a new, empty `LeafNode`.
+    /// Constructs a new, empty `NVMLeafNode`.
     pub fn new() -> Self {
-        LeafNode {
+        NVMLeafNode {
             pool: None,
             disk_offset: None,
-            meta_data: LeafNodeMetaData { 
+            meta_data: NVMLeafNodeMetaData { 
                 storage_preference: AtomicStoragePreference::known(StoragePreference::NONE),
                 system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
                 entries_size: 0,
             },
-            data: Some(LeafNodeData { 
+            data: Some(NVMLeafNodeData { 
                 entries: BTreeMap::new()
             }),
             meta_data_size: 0,
@@ -274,10 +274,10 @@ where S: StoragePoolLayer + 'static*/
         }
     }    
 
-    pub(in crate::tree) fn get_entry(&mut self, key: &[u8]) -> Result<& LeafNodeData, std::io::Error> {
+    pub(in crate::tree) fn get_entry(&mut self, key: &[u8]) -> Result<& NVMLeafNodeData, std::io::Error> {
         if self.need_to_load_data_from_nvm {
             if self.data.is_none() {
-                let mut leafnode = LeafNodeData { 
+                let mut leafnode = NVMLeafNodeData { 
                     entries: BTreeMap::new()
                 };
 
@@ -300,8 +300,8 @@ where S: StoragePoolLayer + 'static*/
 
                 match self.pool.as_ref().unwrap().slice(self.disk_offset.unwrap(), self.data_start, self.data_end) {
                     Ok(val) => {
-                        //let archivedleafnodedata: &ArchivedLeafNodeData = unsafe { archived_root::<LeafNodeData>(&val[..]) };
-                        let archivedleafnodedata: &ArchivedLeafNodeData = rkyv::check_archived_root::<LeafNodeData>(&val[..]).unwrap();
+                        //let archivedleafnodedata: &ArchivedNVMLeafNodeData = unsafe { archived_root::<NVMLeafNodeData>(&val[..]) };
+                        let archivedleafnodedata: &ArchivedNVMLeafNodeData = rkyv::check_archived_root::<NVMLeafNodeData>(&val[..]).unwrap();
 
                         for val in archivedleafnodedata.entries.iter() {
                             if val.key.as_ref().cmp(key).is_eq() {
@@ -326,10 +326,10 @@ where S: StoragePoolLayer + 'static*/
         Ok(self.data.as_ref().unwrap())
     }
 
-    pub(in crate::tree) fn get_entry_mut(&mut self, key: &[u8]) -> Result<&mut LeafNodeData, std::io::Error> {
+    pub(in crate::tree) fn get_entry_mut(&mut self, key: &[u8]) -> Result<&mut NVMLeafNodeData, std::io::Error> {
         if self.need_to_load_data_from_nvm {
             if self.data.is_none() {
-                let mut leafnode = LeafNodeData { 
+                let mut leafnode = NVMLeafNodeData { 
                     entries: BTreeMap::new()
                 };
 
@@ -352,8 +352,8 @@ where S: StoragePoolLayer + 'static*/
 
                 match self.pool.as_ref().unwrap().slice(self.disk_offset.unwrap(), self.data_start, self.data_end) {
                     Ok(val) => {
-                        //let archivedleafnodedata: &ArchivedLeafNodeData = unsafe { archived_root::<LeafNodeData>(&val[..]) };
-                        let archivedleafnodedata: &ArchivedLeafNodeData = rkyv::check_archived_root::<LeafNodeData>(&val[..]).unwrap();
+                        //let archivedleafnodedata: &ArchivedNVMLeafNodeData = unsafe { archived_root::<NVMLeafNodeData>(&val[..]) };
+                        let archivedleafnodedata: &ArchivedNVMLeafNodeData = rkyv::check_archived_root::<NVMLeafNodeData>(&val[..]).unwrap();
                         
                         for val in archivedleafnodedata.entries.iter() {
                             if val.key.as_ref().cmp(key).is_eq() {
@@ -378,7 +378,7 @@ where S: StoragePoolLayer + 'static*/
         Ok(self.data.as_mut().unwrap())
     }
 
-    pub(in crate::tree) fn get_all_entries(&mut self) -> Result<& LeafNodeData, std::io::Error> {
+    pub(in crate::tree) fn get_all_entries(&mut self) -> Result<& NVMLeafNodeData, std::io::Error> {
         if self.need_to_load_data_from_nvm && self.disk_offset.is_some() {
             self.need_to_load_data_from_nvm = false; // TODO: What if all the entries are fetched one by one? handle this part as well.
             let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
@@ -386,8 +386,8 @@ where S: StoragePoolLayer + 'static*/
                 Ok(buffer) => {
                     let bytes: Box<[u8]> = buffer.into_boxed_slice();
 
-                    let archivedleafnodedata: &ArchivedLeafNodeData = rkyv::check_archived_root::<LeafNodeData>(&bytes[self.data_start..self.data_end]).unwrap();
-                    let node:LeafNodeData = archivedleafnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+                    let archivedleafnodedata: &ArchivedNVMLeafNodeData = rkyv::check_archived_root::<NVMLeafNodeData>(&bytes[self.data_start..self.data_end]).unwrap();
+                    let node:NVMLeafNodeData = archivedleafnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
                     self.data = Some(node);
                     return Ok(self.data.as_ref().unwrap());
@@ -401,7 +401,7 @@ where S: StoragePoolLayer + 'static*/
         Ok(self.data.as_ref().unwrap())
     }
 
-    pub(in crate::tree) fn get_all_entries_mut(&mut self) -> Result<&mut LeafNodeData, std::io::Error> {
+    pub(in crate::tree) fn get_all_entries_mut(&mut self) -> Result<&mut NVMLeafNodeData, std::io::Error> {
         if self.need_to_load_data_from_nvm && self.disk_offset.is_some() {
             self.need_to_load_data_from_nvm = false;
             let compressed_data = self.pool.as_ref().unwrap().read(self.node_size, self.disk_offset.unwrap(), self.checksum.unwrap());
@@ -409,8 +409,8 @@ where S: StoragePoolLayer + 'static*/
                 Ok(buffer) => {
                     let bytes: Box<[u8]> = buffer.into_boxed_slice();
 
-                    let archivedleafnodedata: &ArchivedLeafNodeData = rkyv::check_archived_root::<LeafNodeData>(&bytes[self.data_start..self.data_end]).unwrap();
-                    let node:LeafNodeData = archivedleafnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+                    let archivedleafnodedata: &ArchivedNVMLeafNodeData = rkyv::check_archived_root::<NVMLeafNodeData>(&bytes[self.data_start..self.data_end]).unwrap();
+                    let node:NVMLeafNodeData = archivedleafnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
                     self.data = Some(node);
                     return Ok(self.data.as_mut().unwrap());
@@ -425,7 +425,7 @@ where S: StoragePoolLayer + 'static*/
         Ok(self.data.as_mut().unwrap())
     }
 
-    pub(in crate::tree) fn set_data(&mut self, obj: LeafNodeData) {
+    pub(in crate::tree) fn set_data(&mut self, obj: NVMLeafNodeData) {
         self.data = Some(obj);
     }
 
@@ -570,7 +570,7 @@ where S: StoragePoolLayer + 'static*/
         size_delta
     }
 
-    /// Splits this `LeafNode` into to two leaf nodes.
+    /// Splits this `NVMLeafNode` into to two leaf nodes.
     /// Returns a new right sibling, the corresponding pivot key, and the size
     /// delta of this node.
     pub fn split(
@@ -579,17 +579,17 @@ where S: StoragePoolLayer + 'static*/
         max_size: usize,
     ) -> (Self, CowBytes, isize, LocalPivotKey) {
         // assert!(self.size() > S::MAX);
-        let mut right_sibling = LeafNode {
+        let mut right_sibling = NVMLeafNode {
             pool: None,
             disk_offset: None,
             // During a split, preference can't be inherited because the new subset of entries
             // might be a subset with a lower maximal preference.
-            meta_data: LeafNodeMetaData { 
+            meta_data: NVMLeafNodeMetaData { 
                 storage_preference: AtomicStoragePreference::known(StoragePreference::NONE),
                 system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
                 entries_size: 0
             },
-            data: Some(LeafNodeData { 
+            data: Some(NVMLeafNodeData { 
                 entries: BTreeMap::new()
             }),
             meta_data_size: 0,
@@ -679,7 +679,7 @@ where S: StoragePoolLayer + 'static*/
 
 #[cfg(test)]
 mod tests {
-    use super::{CowBytes, LeafNode, Size};
+    use super::{CowBytes, NVMLeafNode, Size};
     use crate::{
         arbitrary::GenExt,
         data_management::HasStoragePreference,
@@ -702,7 +702,7 @@ mod tests {
         }
     }
 
-    impl Arbitrary for LeafNode {
+    impl Arbitrary for NVMLeafNode {
         fn arbitrary(g: &mut Gen) -> Self {
             let len = g.rng().gen_range(0..20);
             let entries: Vec<_> = (0..len)
@@ -715,7 +715,7 @@ mod tests {
                 .map(|(k, v)| (k, v.0))
                 .collect();
 
-            let node: LeafNode = entries
+            let node: NVMLeafNode = entries
                 .iter()
                 .map(|(k, v)| (&k[..], (KeyInfo::arbitrary(g), v.clone())))
                 .collect();
@@ -739,7 +739,7 @@ mod tests {
         }
     }
 
-    fn serialized_size(leaf_node: &LeafNode) -> usize {
+    fn serialized_size(leaf_node: &NVMLeafNode) -> usize {
         unimplemented!("Sajad Karim, fix it");
         /*let mut data = Vec::new();
         PackedMap::pack(leaf_node, &mut data).unwrap(); //TODO: Sajad Kari, fix it,
@@ -747,12 +747,12 @@ mod tests {
     }
 
     #[quickcheck]
-    fn check_actual_size(leaf_node: LeafNode) {
+    fn check_actual_size(leaf_node: NVMLeafNode) {
         //assert_eq!(leaf_node.actual_size(), Some(serialized_size(&leaf_node))); //Sajad Karim, fix it
     }
 
     #[quickcheck]
-    fn check_serialize_size(leaf_node: LeafNode) {
+    fn check_serialize_size(leaf_node: NVMLeafNode) {
         /*let size = leaf_node.size();
         let serialized = serialized_size(&leaf_node);
         if size != serialized {
@@ -768,7 +768,7 @@ mod tests {
     }
 
     #[quickcheck]
-    fn check_serialization(leaf_node: LeafNode) {
+    fn check_serialization(leaf_node: NVMLeafNode) {
         /*let mut data = Vec::new();
         PackedMap::pack(&leaf_node, &mut data).unwrap();
         let twin = PackedMap::new(data).unpack_leaf();
@@ -778,7 +778,7 @@ mod tests {
 
     #[quickcheck]
     fn check_size_insert(
-        mut leaf_node: LeafNode,
+        mut leaf_node: NVMLeafNode,
         key: CowBytes,
         key_info: KeyInfo,
         msg: DefaultMessageActionMsg,
@@ -794,7 +794,7 @@ mod tests {
     const MAX_LEAF_SIZE: usize = 2048;
 
     #[quickcheck]
-    fn check_size_split(mut leaf_node: LeafNode) -> TestResult {
+    fn check_size_split(mut leaf_node: NVMLeafNode) -> TestResult {
         let size_before = leaf_node.size();
 
         if size_before <= MAX_LEAF_SIZE {
@@ -815,7 +815,7 @@ mod tests {
     }
 
     #[quickcheck]
-    fn check_split_merge_idempotent(mut leaf_node: LeafNode) -> TestResult {
+    fn check_split_merge_idempotent(mut leaf_node: NVMLeafNode) -> TestResult {
         if leaf_node.size() <= MAX_LEAF_SIZE {
             return TestResult::discard();
         }

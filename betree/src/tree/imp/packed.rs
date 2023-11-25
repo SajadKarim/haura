@@ -1,7 +1,7 @@
 //! On-disk representation of a node.
 //!
 //! Can be used for read-only access to avoid deserialization.
-use super::leaf::LeafNode;
+use super::leaf::NVMLeafNode;
 use crate::{
     cow_bytes::{CowBytes, SlicedCowBytes},
     data_management::HasStoragePreference,
@@ -220,14 +220,14 @@ impl PackedMap {
         }
     }
 
-    pub(super) fn unpack_leaf(&self) -> LeafNode {
-        let mut leaf: LeafNode = self.get_all().collect();
+    pub(super) fn unpack_leaf(&self) -> NVMLeafNode {
+        let mut leaf: NVMLeafNode = self.get_all().collect();
         // Restore system storage preference state
         leaf.set_system_storage_preference(StoragePreference::from_u8(self.system_preference));
         leaf
     }
 
-    pub(super) fn pack<W: Write>(leaf: &mut LeafNode, mut writer: W) -> io::Result<()> {
+    pub(super) fn pack<W: Write>(leaf: &mut NVMLeafNode, mut writer: W) -> io::Result<()> {
         unimplemented!("..");
         // let entries = leaf.entries();
         // let entries_cnt = entries.len() as u32;
@@ -275,10 +275,10 @@ impl Size for PackedMap {
 
 #[cfg(test)]
 mod tests {
-    use super::{LeafNode, PackedMap};
+    use super::{NVMLeafNode, PackedMap};
 
     #[quickcheck]
-    fn check_packed_contents(leaf: LeafNode) {
+    fn check_packed_contents(leaf: NVMLeafNode) {
         /*let mut v = Vec::new();
         //PackedMap::pack(&leaf, &mut v).unwrap(); //Sajad Karim, fix it
 

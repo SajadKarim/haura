@@ -3,7 +3,7 @@ use self::Inner::*;
 use super::{
     child_buffer::ChildBuffer,
     internal::{InternalNode, TakeChildBuffer},
-    leaf::{LeafNode, LeafNodeMetaData, LeafNodeData},
+    leaf::{NVMLeafNode, NVMLeafNodeMetaData, NVMLeafNodeData},
     packed::PackedMap,
     FillUpResult, KeyInfo, PivotKey, MAX_INTERNAL_NODE_SIZE, MAX_LEAF_NODE_SIZE, MIN_FANOUT,
     MIN_FLUSH_SIZE, MIN_LEAF_NODE_SIZE,
@@ -14,7 +14,7 @@ use crate::{
     database::{DatasetId,RootSpu},
     size::{Size, SizeMut, StaticSize},
     storage_pool::{DiskOffset, StoragePoolLayer},
-    tree::{pivot_key::LocalPivotKey, MessageAction, imp::{/*leaf::ArchivedLeafNode,*/ internal::{InternalNodeMetaData, ArchivedInternalNodeMetaData, ArchivedInternalNodeData, InternalNodeData}}},
+    tree::{pivot_key::LocalPivotKey, MessageAction, imp::{/*leaf::ArchivedNVMLeafNode,*/ internal::{InternalNodeMetaData, ArchivedInternalNodeMetaData, ArchivedInternalNodeData, InternalNodeData}}},
     StoragePreference,
 };
 use bincode::{deserialize, serialize_into};
@@ -54,7 +54,7 @@ pub(super) enum Inner<N: 'static>
 //where S: StoragePoolLayer + 'static
 {
     PackedLeaf(PackedMap),
-    Leaf(LeafNode),
+    Leaf(NVMLeafNode),
     Internal(InternalNode<N>),
 }
 
@@ -228,7 +228,7 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
             // recalculates the correct storage_preference for the contained keys.
 
             //Ok(Node(PackedLeaf(PackedMap::new(data.into_vec()))))
-            /*match deserialize::<LeafNode>(&data[..]) {
+            /*match deserialize::<NVMLeafNode>(&data[..]) {
                 Ok(leaf) => Ok(Node(Leaf(leaf))),
                 Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
             }*/
@@ -242,17 +242,17 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
             let data_start = meta_data_end;
             let data_end = data_start + data_len;   
 
-            let archivedleafnodemetadata = rkyv::check_archived_root::<LeafNodeMetaData>(&data[meta_data_start..meta_data_end]).unwrap();
-            //let archivedleafnode: &ArchivedLeafNode = unsafe { archived_root::<LeafNode>(&data) };            
-            let meta_data:LeafNodeMetaData = archivedleafnodemetadata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            let archivedleafnodemetadata = rkyv::check_archived_root::<NVMLeafNodeMetaData>(&data[meta_data_start..meta_data_end]).unwrap();
+            //let archivedleafnode: &ArchivedNVMLeafNode = unsafe { archived_root::<NVMLeafNode>(&data) };            
+            let meta_data:NVMLeafNodeMetaData = archivedleafnodemetadata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
             
-  /*          let archivedleafnodedata = rkyv::check_archived_root::<LeafNodeData>(&data[data_start..data_end]).unwrap();
-            //let archivedleafnode: &ArchivedLeafNode = unsafe { archived_root::<LeafNode>(&data) };            
-            let data:LeafNodeData = archivedleafnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+  /*          let archivedleafnodedata = rkyv::check_archived_root::<NVMLeafNodeData>(&data[data_start..data_end]).unwrap();
+            //let archivedleafnode: &ArchivedNVMLeafNode = unsafe { archived_root::<NVMLeafNode>(&data) };            
+            let data:NVMLeafNodeData = archivedleafnodedata.deserialize(&mut rkyv::de::deserializers::SharedDeserializeMap::new()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     */        
 
-            let mut abc = LeafNode {
+            let mut abc = NVMLeafNode {
                 pool: Some(pool),
                 disk_offset: Some(_offset),
                 meta_data : meta_data,
@@ -273,7 +273,7 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
             debug!("Leaf node packed successfully"); 
             Ok(Node(Leaf(abc)))
                 
-            /* match deserialize::<LeafNode>(&data[..]) {
+            /* match deserialize::<NVMLeafNode>(&data[..]) {
                 Ok(leaf) => Ok(Node(Leaf(leaf))),
                 Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
             }*/
@@ -425,7 +425,7 @@ impl<N: HasStoragePreference + StaticSize> Node<N>
     }
 
     pub(super) fn empty_leaf() -> Self {
-        Node(Leaf(LeafNode::new()))
+        Node(Leaf(NVMLeafNode::new()))
     }
 
     pub(super) fn level(&self) -> u32 {
