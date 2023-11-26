@@ -429,7 +429,7 @@ where
         let res = Ok(loop {
             let next_node = match node.apply_with_info(key, pref) {
                 ApplyResult::NextNode(np) => self.get_mut_node_mut(np)?,
-                ApplyResult::Leaf(info) => break info,
+                ApplyResult::NVMLeaf(info) => break info,
             };
             node = next_node;
         });
