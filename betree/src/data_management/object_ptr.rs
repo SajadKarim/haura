@@ -9,7 +9,8 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[archive(check_bytes)]
 /// A pointer to an on-disk serialized object.
 pub struct ObjectPointer<D> {
     pub(super) decompression_tag: DecompressionTag,
@@ -18,18 +19,23 @@ pub struct ObjectPointer<D> {
     pub(super) size: Block<u32>,
     pub(super) info: DatasetId,
     pub(super) generation: Generation,
+    pub(super) metadata_size: usize,
 }
 
 impl<D> HasStoragePreference for ObjectPointer<D> {
-    fn current_preference(&self) -> Option<StoragePreference> {
+    fn current_preference(&mut self) -> Option<StoragePreference> {
         Some(self.correct_preference())
     }
 
-    fn recalculate(&self) -> StoragePreference {
+    fn recalculate(&mut self) -> StoragePreference {
         self.correct_preference()
     }
 
-    fn correct_preference(&self) -> StoragePreference {
+    fn recalculate_lazy(&mut self) -> StoragePreference {
+        self.correct_preference()
+    }
+
+    fn correct_preference(&mut self) -> StoragePreference {
         StoragePreference::new(self.offset.storage_class())
     }
 
@@ -51,6 +57,7 @@ impl<D: StaticSize> StaticSize for ObjectPointer<D> {
             + Generation::static_size()
             + <DiskOffset as StaticSize>::static_size()
             + Block::<u32>::static_size()
+            + std::mem::size_of::<usize>()
     }
 }
 
@@ -80,4 +87,9 @@ impl<D> ObjectPointer<D> {
     pub fn info(&self) -> DatasetId {
         self.info
     }
+
+    pub fn metadata_size(&self) -> usize {
+        self.metadata_size
+    }
+
 }

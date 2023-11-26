@@ -66,6 +66,7 @@ impl<E, SPL> Dmu<E, SPL>
 where
     SPL: StoragePoolLayer,
     SPL::Checksum: StaticSize,
+    crate::checksum::XxHash: From<<SPL as StoragePoolLayer>::Checksum>
 {
     /// Returns a new `Dmu`.
     pub fn new(
@@ -130,6 +131,8 @@ where
     >,
     SPL: StoragePoolLayer,
     SPL::Checksum: StaticSize,
+    crate::storage_pool::StoragePoolUnit<crate::checksum::XxHash>: From<SPL>,
+    crate::checksum::XxHash: From<<SPL as StoragePoolLayer>::Checksum>
 {
     /// Stealing an [ObjectRef] can have multiple effects.  First, the
     /// corresponding node is moved in cache to the [ObjectKey::Modified] state.
@@ -216,6 +219,11 @@ where
                 .map_err(|_| warn!("Channel Receiver has been dropped."));
         }
     }
+    fn print_type_of<T>(_: &T) {
+        panic!("---------------------------->{}", std::any::type_name::<T>())
+    }
+    
+
 
     /// Fetches synchronously an object from disk and inserts it into the
     /// cache.
@@ -225,14 +233,19 @@ where
         let mut decompression_state = op.decompression_tag().new_decompression()?;
         let offset = op.offset();
         let generation = op.generation();
+        //Self::print_type_of(op.checksum());
 
+        let a = Block::round_up_from_bytes(op.metadata_size() as u32);
         let compressed_data = self
             .pool
-            .read(op.size(), op.offset(), op.checksum().clone())?;
+            //.read(op.size(), op.offset(), op.checksum().clone())?;
+            .read(a, op.offset(), op.checksum().clone())?;
+        let len = compressed_data.len();
 
         let object: Node<ObjRef<ObjectPointer<SPL::Checksum>>> = {
             let data = decompression_state.decompress(&compressed_data)?;
-            Object::unpack_at(op.offset(), op.info(), data)?
+
+            Object::unpack_at(op.size(),op.checksum().clone().into(), self.pool.clone().into(), op.offset(), op.info(), data)?
         };
         let key = ObjectKey::Unmodified { offset, generation };
         self.insert_object_into_cache(key, TaggedCacheValue::new(RwLock::new(object), pivot_key));
@@ -355,7 +368,7 @@ where
         let object_size = {
             #[cfg(debug_assertions)]
             {
-                super::Size::checked_size(&*object).expect("Size calculation mismatch")
+                super::Size::checked_size(&mut *object).expect("Size calculation mismatch")
             }
             #[cfg(not(debug_assertions))]
             {
@@ -380,12 +393,13 @@ where
             .preferred_class()
             .unwrap_or(self.default_storage_class);
 
+        let mut metadata_size = 0;
         let compression = &self.default_compression;
         let compressed_data = {
             // FIXME: cache this
             let mut state = compression.new_compression()?;
             {
-                object.pack(&mut state)?;
+                object.pack(&mut state, &mut metadata_size)?;
                 drop(object);
             }
             state.finish()
@@ -421,6 +435,7 @@ where
             decompression_tag: compression.decompression_tag(),
             generation,
             info,
+            metadata_size,
         };
 
         let was_present;
@@ -681,6 +696,8 @@ where
     >,
     SPL: StoragePoolLayer,
     SPL::Checksum: StaticSize,
+    crate::storage_pool::StoragePoolUnit<crate::checksum::XxHash>: From<SPL>,
+    crate::checksum::XxHash: From<<SPL as StoragePoolLayer>::Checksum>
 {
     type ObjectPointer = ObjectPointer<SPL::Checksum>;
     type ObjectRef = ObjRef<Self::ObjectPointer>;
@@ -693,13 +710,13 @@ where
         &self.pool
     }
 
-    fn try_get(&self, or: &Self::ObjectRef) -> Option<Self::CacheValueRef> {
+    fn try_get(&self, or: &Self::ObjectRef) -> Option<Self::CacheValueRefMut> {
         let result = {
             // Drop order important
             let cache = self.cache.read();
             cache.get(&or.as_key(), false)
         };
-        result.map(CacheValueRef::read)
+        result.map(CacheValueRef::write)
     }
 
     fn try_get_mut(&self, or: &Self::ObjectRef) -> Option<Self::CacheValueRefMut> {
@@ -714,12 +731,12 @@ where
         }
     }
 
-    fn get(&self, or: &mut Self::ObjectRef) -> Result<Self::CacheValueRef, Error> {
+    fn get(&self, or: &mut Self::ObjectRef) -> Result<Self::CacheValueRefMut, Error> {
         let mut cache = self.cache.read();
         loop {
             if let Some(entry) = cache.get(&or.as_key(), true) {
                 drop(cache);
-                return Ok(CacheValueRef::read(entry));
+                return Ok(CacheValueRef::write(entry));
             }
             if let ObjRef::Unmodified(ref ptr, ref pk) = *or {
                 drop(cache);
@@ -764,7 +781,7 @@ where
         }
     }
 
-    fn insert(&self, object: Self::Object, info: DatasetId, pk: PivotKey) -> Self::ObjectRef {
+    fn insert(&self, mut object: Self::Object, info: DatasetId, pk: PivotKey) -> Self::ObjectRef {
         let mid = ModifiedObjectId {
             id: self.next_modified_node_id.fetch_add(1, Ordering::Relaxed),
             pref: object.correct_preference(),
@@ -782,7 +799,7 @@ where
 
     fn insert_and_get_mut(
         &self,
-        object: Self::Object,
+        mut object: Self::Object,
         info: DatasetId,
         pk: PivotKey,
     ) -> (Self::CacheValueRefMut, Self::ObjectRef) {
@@ -940,7 +957,7 @@ where
                 .decompression_tag()
                 .new_decompression()?
                 .decompress(&compressed_data)?;
-            Object::unpack_at(ptr.offset(), ptr.info(), data)?
+            Object::unpack_at(ptr.size(), ptr.checksum().clone().into() , self.pool.clone().into(), ptr.offset(), ptr.info(), data)?
         };
         let key = ObjectKey::Unmodified {
             offset: ptr.offset(),
@@ -983,6 +1000,8 @@ where
     >,
     SPL: StoragePoolLayer,
     SPL::Checksum: StaticSize,
+    crate::storage_pool::StoragePoolUnit<crate::checksum::XxHash>: From<SPL>,
+    crate::checksum::XxHash: From<<SPL as StoragePoolLayer>::Checksum>
 {
     type Handler = Handler<ObjRef<ObjectPointer<SPL::Checksum>>>;
 
@@ -999,6 +1018,8 @@ where
     >,
     SPL: StoragePoolLayer,
     SPL::Checksum: StaticSize,
+    crate::storage_pool::StoragePoolUnit<crate::checksum::XxHash>: From<SPL>,
+    crate::checksum::XxHash: From<<SPL as StoragePoolLayer>::Checksum>
 {
     fn storage_hints(&self) -> Arc<Mutex<HashMap<PivotKey, StoragePreference>>> {
         Arc::clone(&self.storage_hints)
@@ -1017,6 +1038,8 @@ where
     >,
     SPL: StoragePoolLayer,
     SPL::Checksum: StaticSize,
+    crate::storage_pool::StoragePoolUnit<crate::checksum::XxHash>: From<SPL>,
+    crate::checksum::XxHash: From<<SPL as StoragePoolLayer>::Checksum>
 {
     fn with_report(mut self, tx: Sender<DmlMsg>) -> Self {
         self.report_tx = Some(tx);

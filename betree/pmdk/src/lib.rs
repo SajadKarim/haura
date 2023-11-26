@@ -4,6 +4,7 @@
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
+use std::slice;
 use std::os::raw::c_void;
 
 #[derive(Debug)]
@@ -13,6 +14,11 @@ pub struct PMem {
     
 unsafe impl Send for PMem {}
 unsafe impl Sync for PMem {}
+
+unsafe fn voidp_to_ref<'a, T>(p: *const c_void) -> &'a T
+{
+    unsafe { &*(p as *const T) }
+}
 
 impl PMem {
     pub fn create(filepath : &str, len: u64, mapped_len : &mut u64, is_pmem : &mut i32) -> Result<Self, std::io::Error> {
@@ -71,6 +77,27 @@ impl PMem {
         };
 
         Ok(())
+    }
+
+    pub unsafe fn get_slice(&self, offset: usize, len: usize) -> Result<&'static [u8], std::io::Error>{
+        if self.ptr.is_null() {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other,
+                        format!("File handle is missing for the PMEM file.")));
+        }
+
+        Ok(slice::from_raw_parts(voidp_to_ref::<u8>(self.ptr.add(offset)), len))
+
+        /*let ptr = unsafe {
+            
+            pmem_memcpy(data.as_ptr() as *mut c_void, self.ptr.add(offset), len, PMEM_F_MEM_NOFLUSH /*| PMEM_F_MEM_TEMPORAL*/)
+        };
+        
+        if ptr.is_null() {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other,
+                        format!("Failed to read data from  PMEM file. Offset: {}, Size:  {}", offset, len)));
+        };
+
+        Ok(())*/
     }
 
     pub unsafe fn write(&self, offset: usize, data: &[u8], len: usize) -> Result<(), std::io::Error>{

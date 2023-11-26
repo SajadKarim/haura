@@ -670,8 +670,9 @@ impl DeadListData {
 /// Internal identifier for a dataset
 #[derive(
     Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
-pub struct DatasetId(u64);
+    rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+    #[archive(check_bytes)]
+pub struct DatasetId(pub u64);
 
 use std::fmt::Display;
 
@@ -764,7 +765,8 @@ impl<P: DeserializeOwned> DatasetData<P> {
 }
 
 /// Internal identifier of a generation
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[archive(check_bytes)]
 pub struct Generation(u64);
 
 impl StaticSize for Generation {

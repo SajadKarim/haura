@@ -7,8 +7,10 @@ use crate::{
     StoragePreference,
 };
 use serde::{
-    de::DeserializeOwned, ser::Error as SerError, Deserialize, Deserializer, Serialize, Serializer,
+    de::DeserializeOwned, ser::Error as SerError,
 };
+
+use rkyv::ser::Serializer;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct ModifiedObjectId {
@@ -41,7 +43,7 @@ pub enum ObjRef<P> {
 impl<D> super::ObjectReference for ObjRef<ObjectPointer<D>>
 where
     D: std::fmt::Debug + 'static,
-    ObjectPointer<D>: Serialize + DeserializeOwned + StaticSize + Clone,
+    ObjectPointer<D>: serde::Serialize + DeserializeOwned + StaticSize + Clone,
 {
     type ObjectPointer = ObjectPointer<D>;
     fn get_unmodified(&self) -> Option<&ObjectPointer<D>> {
@@ -72,6 +74,29 @@ where
             ObjRef::Unmodified(_, pk) | ObjRef::Modified(_, pk) | ObjRef::InWriteback(_, pk) => pk,
         }
     }
+
+    fn serialize_unmodified(&self, w : &mut Vec<u8>) -> Result<(), std::io::Error> {
+
+        if let ObjRef::Unmodified(ref p, ..) | ObjRef::Incomplete(ref p) = self {
+
+            bincode::serialize_into(w, p)
+                    .map_err(|e| {
+                        debug!("Failed to serialize ObjectPointer.");
+                        std::io::Error::new(std::io::ErrorKind::InvalidData, e)
+                    })?;
+        }
+        Ok(())
+    }
+
+    fn deserialize_and_set_unmodified(bytes: &[u8]) -> Result<Self, std::io::Error> {
+        match bincode::deserialize::<ObjectPointer<D>>(bytes) {
+            Ok(p) => Ok(ObjRef::Incomplete(p.clone())),
+            Err(e) => {
+                debug!("Failed to deserialize ObjectPointer.");
+                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e)
+            )},
+        }
+    }
 }
 
 impl<D> ObjRef<ObjectPointer<D>> {
@@ -96,15 +121,19 @@ impl<D> ObjRef<ObjectPointer<D>> {
 }
 
 impl<P: HasStoragePreference> HasStoragePreference for ObjRef<P> {
-    fn current_preference(&self) -> Option<StoragePreference> {
+    fn current_preference(&mut self) -> Option<StoragePreference> {
         Some(self.correct_preference())
     }
 
-    fn recalculate(&self) -> StoragePreference {
+    fn recalculate(&mut self) -> StoragePreference {
         self.correct_preference()
     }
 
-    fn correct_preference(&self) -> StoragePreference {
+    fn recalculate_lazy(&mut self) -> StoragePreference {
+        self.correct_preference()
+    }
+
+    fn correct_preference(&mut self) -> StoragePreference {
         match self {
             ObjRef::Unmodified(p, ..) => p.correct_preference(),
             ObjRef::Modified(mid, ..) | ObjRef::InWriteback(mid, ..) => mid.pref,
@@ -129,10 +158,10 @@ impl<P: StaticSize> StaticSize for ObjRef<P> {
     }
 }
 
-impl<P: Serialize> Serialize for ObjRef<P> {
+impl<P: serde::Serialize> serde::Serialize for ObjRef<P> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: serde::Serializer,
     {
         match *self {
             ObjRef::Modified(..) => Err(S::Error::custom(
@@ -148,13 +177,13 @@ impl<P: Serialize> Serialize for ObjRef<P> {
     }
 }
 
-impl<'de, D> Deserialize<'de> for ObjRef<ObjectPointer<D>>
+impl<'de, D> serde::Deserialize<'de> for ObjRef<ObjectPointer<D>>
 where
-    ObjectPointer<D>: Deserialize<'de>,
+    ObjectPointer<D>: serde::Deserialize<'de>,
 {
     fn deserialize<E>(deserializer: E) -> Result<Self, E::Error>
     where
-        E: Deserializer<'de>,
+        E: serde::Deserializer<'de>,
     {
         ObjectPointer::<D>::deserialize(deserializer).map(ObjRef::Incomplete)
     }

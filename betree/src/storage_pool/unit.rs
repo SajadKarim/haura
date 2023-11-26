@@ -5,9 +5,10 @@ use super::{
 use crate::{
     bounded_future_queue::BoundedFutureQueue,
     buffer::Buf,
-    checksum::Checksum,
+    checksum::{Checksum, XxHash},
     vdev::{self, Block, Dev, Error as VdevError, Vdev, VdevRead, VdevWrite},
     PreferredAccessType, StoragePreference,
+    size::{Size, SizeMut, StaticSize},
 };
 use futures::{
     executor::{block_on, ThreadPool},
@@ -22,6 +23,30 @@ use std::{convert::TryInto, marker::PhantomData, ops::Index, pin::Pin, sync::Arc
 pub struct StoragePoolUnit<C: Checksum> {
     inner: Arc<Inner<C>>,
 }
+
+// impl<C: Checksum> StaticSize for StoragePoolUnit<C> {
+//     fn static_size() -> usize {
+//         0
+//     }
+// }
+
+// impl<C: Checksum> crate::data_management::HasStoragePreference for StoragePoolUnit<C> {
+//     fn current_preference(&self) -> Option<StoragePreference> {
+//         unimplemented!("..");
+//     }
+
+//     fn recalculate(&self) -> StoragePreference {
+//         unimplemented!("..");
+//     }
+
+//     fn system_storage_preference(&self) -> StoragePreference {
+//         unimplemented!("..");
+//     }
+
+//     fn set_system_storage_preference(&mut self, pref: StoragePreference) {
+//         unimplemented!("..");
+//     }
+// }
 
 pub(super) type WriteBackQueue = BoundedFutureQueue<
     DiskOffset,
@@ -134,6 +159,26 @@ impl<C: Checksum> StoragePoolLayer for StoragePoolUnit<C> {
         })
     }
 
+    type SliceAsync = Pin<Box<dyn Future<Output = Result<&'static [u8], VdevError>> + Send>>;
+
+    fn get_slice(
+        &self,
+        offset: DiskOffset,
+        start: usize,
+        end: usize
+    ) -> Result<Self::SliceAsync, VdevError> {
+        // TODO: can move this onto pool without deadlock?
+        self.inner.write_back_queue.wait(&offset)?;
+        let inner = self.inner.clone();
+        Ok(Box::pin(self.inner.pool.spawn_with_handle(async move {
+            // inner.write_back_queue.wait_async(offset).await;
+            inner
+                .by_offset(offset)
+                .get_slice(offset.block_offset(), start, end)
+                .await
+        })?))
+    }
+    
     type ReadAsync = Pin<Box<dyn Future<Output = Result<Buf, VdevError>> + Send>>;
 
     fn read_async(
