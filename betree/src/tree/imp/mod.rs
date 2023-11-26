@@ -18,16 +18,24 @@ use crate::{
     tree::MessageAction,
     StoragePreference,
 };
-use leaf::FillUpResult;
+use nvmleaf::FillUpResult;
 use owning_ref::OwningRef;
 use parking_lot::{RwLock, RwLockWriteGuard};
 use std::{borrow::Borrow, marker::PhantomData, mem, ops::RangeBounds};
 
 /// Additional information for a single entry. Concerns meta information like
 /// the desired storage level of a key.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[archive(check_bytes)]
 pub struct KeyInfo {
     storage_preference: StoragePreference,
+}
+
+
+impl From<&ArchivedKeyInfo> for KeyInfo {
+    fn from(x: &ArchivedKeyInfo) -> Self {
+        x.into()
+    }
 }
 
 impl StaticSize for KeyInfo {
@@ -233,21 +241,23 @@ where
             .get_mut(&mut self.inner.borrow().root_node.write(), self.tree_id())?)
     }
 
-    fn get_root_node(&self) -> Result<X::CacheValueRef, Error> {
+    fn get_root_node(&self) -> Result<X::CacheValueRefMut, Error> {
         self.get_node(&self.inner.borrow().root_node)
     }
 
-    fn get_node(&self, np_ref: &RwLock<X::ObjectRef>) -> Result<X::CacheValueRef, Error> {
+    fn get_node(&self, np_ref: &RwLock<X::ObjectRef>) -> Result<X::CacheValueRefMut, Error> {
         if let Some(node) = self.dml.try_get(&np_ref.read()) {
+            //println!("..in cache");            
             return Ok(node);
         }
+        //println!("..from disk");
         Ok(self.dml.get(&mut np_ref.write())?)
     }
 
     pub(crate) fn get_node_pivot(
         &self,
         pivot: &PivotKey,
-    ) -> Result<Option<X::CacheValueRef>, Error> {
+    ) -> Result<Option<X::CacheValueRefMut>, Error> {
         let pivot = pivot.borrow();
         let mut node = self.get_root_node()?;
         Ok(loop {
@@ -362,7 +372,7 @@ where
     where
         X::ObjectRef: HasStoragePreference,
     {
-        let root = self.get_root_node()?;
+        let mut root = self.get_root_node()?;
 
         Ok(root.node_info(&self.dml))
     }
@@ -379,7 +389,7 @@ where
         let mut msgs = Vec::new();
         let mut node = self.get_root_node()?;
         let data = loop {
-            let next_node = match node.get(key, &mut msgs) {
+            let next_node: <X as Dml>::CacheValueRefMut = match node.get(key, &mut msgs) {
                 GetResult::NextNode(np) => self.get_node(np)?,
                 GetResult::Data(data) => break data,
             };
@@ -420,7 +430,7 @@ where
         let res = Ok(loop {
             let next_node = match node.apply_with_info(key, pref) {
                 ApplyResult::NextNode(np) => self.get_mut_node_mut(np)?,
-                ApplyResult::Leaf(info) => break info,
+                ApplyResult::NVMLeaf(info) => break info,
             };
             node = next_node;
         });
@@ -554,10 +564,13 @@ where
     }
 }
 
+mod nvm_child_buffer;
 mod child_buffer;
 mod derivate_ref;
 mod flush;
+mod nvminternal;
 mod internal;
+mod nvmleaf;
 mod leaf;
 mod node;
 mod packed;

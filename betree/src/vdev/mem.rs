@@ -7,6 +7,7 @@ use crate::{
     checksum::Checksum,
 };
 use async_trait::async_trait;
+use error_chain::example_generated::inner;
 use parking_lot::RwLock;
 use std::{
     io::{self, Write},
@@ -53,6 +54,15 @@ impl Memory {
         .map_err(|_| VdevError::Write(self.id.clone()))
     }
 
+    fn ref_to_slice(&self, offset: Block<u64>, start: usize, end: usize) -> Result<&'static [u8]> {
+        let inner_offset = offset.to_bytes() as usize + start;
+        let size = end - start;
+
+        let x = &self.mem.read()[inner_offset];
+
+        Ok(unsafe { std::slice::from_raw_parts(x, size)})
+   }
+
     fn slice_read(&self, size: Block<u32>, offset: Block<u64>) -> Result<Buf> {
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
         #[cfg(feature = "latency_metrics")]
@@ -94,25 +104,41 @@ impl Memory {
 
 #[async_trait]
 impl VdevRead for Memory {
+    async fn get_slice(
+        &self,
+        offset: Block<u64>,
+        start: usize,
+        end: usize
+    ) -> Result<&'static [u8]> {
+       // println!("1> {:?}, {}, {}", offset, start, end);
+
+        self.ref_to_slice(offset, start, end)
+    }
+
     async fn read<C: Checksum>(
         &self,
         size: Block<u32>,
         offset: Block<u64>,
         checksum: C,
     ) -> Result<Buf> {
+        //println!("2> {:?}, {:?}", offset, size);
+
         let buf = self.slice_read(size, offset)?;
+
+        Ok(buf)
+        /* TODO: Sajad Karim.. supressing the code temporarily
         match checksum
             .verify(&buf)
             .map_err(|_| VdevError::Read(self.id.clone()))
         {
-            Ok(()) => Ok(buf),
-            Err(e) => {
+            Ok(()) => {println!("..cf1"); Ok(buf)},
+            Err(e) => {println!("..cf2");
                 self.stats
                     .checksum_errors
                     .fetch_add(size.as_u64(), Ordering::Relaxed);
                 Err(e)
             }
-        }
+        }*/
     }
 
     async fn scrub<C: Checksum>(

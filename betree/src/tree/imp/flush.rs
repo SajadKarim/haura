@@ -6,14 +6,14 @@
 use std::borrow::Borrow;
 
 use super::{
-    child_buffer::ChildBuffer, derivate_ref::DerivateRef, internal::TakeChildBuffer, FillUpResult,
+    derivate_ref::DerivateRef, FillUpResult,
     Inner, Node, Tree,
 };
 use crate::{
     cache::AddSize,
     data_management::{Dml, HasStoragePreference, ObjectReference},
     size::Size,
-    tree::{errors::*, imp::internal::MergeChildResult, MessageAction},
+    tree::{errors::*, imp::nvminternal::MergeChildResult, MessageAction},
 };
 
 impl<X, R, M, I> Tree<X, M, I>
@@ -52,20 +52,23 @@ where
         &self,
         mut node: X::CacheValueRefMut,
         mut parent: Option<
-            DerivateRef<X::CacheValueRefMut, TakeChildBuffer<'static, ChildBuffer<R>>>,
+            DerivateRef<X::CacheValueRefMut, super::nvminternal::TakeChildBuffer<'static, R>>,
         >,
     ) -> Result<(), Error> {
         loop {
             if !node.is_too_large() {
                 return Ok(());
             }
+
+            let actual_size =  node.actual_size();
+            let fanout = node.fanout();
             debug!(
                 "{}, {:?}, lvl: {}, size: {}, actual: {:?}",
                 node.kind(),
-                node.fanout(),
+                fanout,
                 node.level(),
                 node.size(),
-                node.actual_size()
+                actual_size
             );
             // 1. Select the largest child buffer which can be flushed.
             let mut child_buffer =

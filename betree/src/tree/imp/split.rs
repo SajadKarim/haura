@@ -1,5 +1,5 @@
 //! Encapsulating logic for splitting of normal and root nodes.
-use super::{child_buffer::ChildBuffer, internal::TakeChildBuffer, Inner, Node, Tree};
+use super::{Inner, Node, Tree};
 use crate::{
     cache::AddSize,
     data_management::{Dml, HasStoragePreference, ObjectReference},
@@ -18,20 +18,24 @@ where
     pub(super) fn split_root_node(&self, mut root_node: X::CacheValueRefMut) {
         self.dml.verify_cache();
         let before = root_node.size();
+        let fanout = root_node.fanout();
+        let size = root_node.size();
+        let actual_size = root_node.actual_size();
         debug!(
             "Splitting root. {}, {:?}, {}, {:?}",
             root_node.kind(),
-            root_node.fanout(),
-            root_node.size(),
-            root_node.actual_size()
+            fanout,
+            size,
+            actual_size
         );
+
         let size_delta = root_node.split_root_mut(|node, pk| {
             debug!(
                 "Root split child: {}, {:?}, {}, {:?}",
                 node.kind(),
-                node.fanout(),
-                node.size(),
-                node.actual_size()
+                0, //node.fanout(), //TODO fix it
+                0,//node.size(), // TODO fix it
+                0,//node.actual_size() // TODO fix it
             );
             self.dml
                 .insert(node, self.tree_id(), pk.to_global(self.tree_id()))
@@ -45,7 +49,7 @@ where
     pub(super) fn split_node(
         &self,
         mut node: X::CacheValueRefMut,
-        parent: &mut TakeChildBuffer<ChildBuffer<R>>,
+        parent: &mut super::nvminternal::TakeChildBuffer<R>,
     ) -> Result<(X::CacheValueRefMut, isize), Error> {
         self.dml.verify_cache();
 

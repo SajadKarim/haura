@@ -10,13 +10,40 @@ use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
-
+use std::cmp::Ordering;
 /// Copy-on-Write smart pointer which supports cheap cloning as it is
 /// reference-counted.
-#[derive(Hash, Debug, Clone, Eq, Ord, Default)]
+#[derive(Hash, Debug, Clone, Eq, Ord, Default, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[archive(check_bytes)]
 pub struct CowBytes {
     // TODO Replace by own implementation
     pub(super) inner: Arc<Vec<u8>>,
+}
+
+// impl Eq for ArchivedCowBytes {}
+
+// impl PartialEq for ArchivedCowBytes {
+//     fn eq(&self, other: &Self) -> bool {
+//         self == other
+//     }
+// }
+
+// impl Ord for ArchivedCowBytes {
+//     fn cmp(&self, other: &Self) -> Ordering {
+//         self.cmp(other)
+//     }
+// }
+
+// impl PartialOrd for ArchivedCowBytes {
+//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+//         Some(self.cmp(other))
+//     }
+// }
+
+impl AsRef<[u8]> for ArchivedCowBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.inner
+    }
 }
 
 impl<T: AsRef<[u8]>> PartialEq<T> for CowBytes {
@@ -219,7 +246,8 @@ impl<'a> Extend<&'a u8> for CowBytes {
 }
 
 /// Reference-counted pointer which points to a subslice of the referenced data.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[archive(check_bytes)]
 pub struct SlicedCowBytes {
     pub(super) data: CowBytes,
     pos: u32,
@@ -290,6 +318,12 @@ impl From<CowBytes> for SlicedCowBytes {
             len: data.len() as u32,
             data,
         }
+    }
+}
+
+impl From<&ArchivedSlicedCowBytes> for SlicedCowBytes {
+    fn from(x: &ArchivedSlicedCowBytes) -> Self {
+        x.into()
     }
 }
 
