@@ -1,5 +1,5 @@
 //! Encapsulating logic for splitting of normal and root nodes.
-use super::{nvm_child_buffer::NVMChildBuffer, nvminternal::TakeChildBuffer, Inner, Node, Tree};
+use super::{Inner, Node, Tree};
 use crate::{
     cache::AddSize,
     data_management::{Dml, HasStoragePreference, ObjectReference},
@@ -49,7 +49,7 @@ where
     pub(super) fn split_node(
         &self,
         mut node: X::CacheValueRefMut,
-        parent: &mut TakeChildBuffer<R>,
+        parent: &mut super::nvminternal::TakeChildBuffer<R>,
     ) -> Result<(X::CacheValueRefMut, isize), Error> {
         self.dml.verify_cache();
 

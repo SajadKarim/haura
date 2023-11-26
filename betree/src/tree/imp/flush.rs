@@ -6,7 +6,7 @@
 use std::borrow::Borrow;
 
 use super::{
-    nvm_child_buffer::NVMChildBuffer, derivate_ref::DerivateRef, nvminternal::TakeChildBuffer, FillUpResult,
+    derivate_ref::DerivateRef, FillUpResult,
     Inner, Node, Tree,
 };
 use crate::{
@@ -52,7 +52,7 @@ where
         &self,
         mut node: X::CacheValueRefMut,
         mut parent: Option<
-            DerivateRef<X::CacheValueRefMut, TakeChildBuffer<'static, R>>,
+            DerivateRef<X::CacheValueRefMut, super::nvminternal::TakeChildBuffer<'static, R>>,
         >,
     ) -> Result<(), Error> {
         loop {
