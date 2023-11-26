@@ -1,7 +1,7 @@
 //! Implementation of the generic node wrapper.
 use self::Inner::*;
 use super::{
-    child_buffer::NVMChildBuffer,
+    nvm_child_buffer::NVMChildBuffer,
     nvminternal::{NVMInternalNode, TakeChildBuffer},
     nvmleaf::{NVMLeafNode, NVMLeafNodeMetaData, NVMLeafNodeData},
     packed::PackedMap,

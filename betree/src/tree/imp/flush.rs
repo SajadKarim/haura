@@ -6,7 +6,7 @@
 use std::borrow::Borrow;
 
 use super::{
-    child_buffer::NVMChildBuffer, derivate_ref::DerivateRef, nvminternal::TakeChildBuffer, FillUpResult,
+    nvm_child_buffer::NVMChildBuffer, derivate_ref::DerivateRef, nvminternal::TakeChildBuffer, FillUpResult,
     Inner, Node, Tree,
 };
 use crate::{

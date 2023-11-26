@@ -1,6 +1,6 @@
 //! Implementation of the [NVMInternalNode] node type.
 use super::{
-    child_buffer::NVMChildBuffer,
+    nvm_child_buffer::NVMChildBuffer,
     node::{PivotGetMutResult, PivotGetResult},
     PivotKey,
 };

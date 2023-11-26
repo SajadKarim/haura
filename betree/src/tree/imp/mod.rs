@@ -563,7 +563,7 @@ where
     }
 }
 
-mod child_buffer;
+mod nvm_child_buffer;
 mod derivate_ref;
 mod flush;
 mod nvminternal;

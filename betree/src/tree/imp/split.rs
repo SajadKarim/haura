@@ -1,5 +1,5 @@
 //! Encapsulating logic for splitting of normal and root nodes.
-use super::{child_buffer::NVMChildBuffer, nvminternal::TakeChildBuffer, Inner, Node, Tree};
+use super::{nvm_child_buffer::NVMChildBuffer, nvminternal::TakeChildBuffer, Inner, Node, Tree};
 use crate::{
     cache::AddSize,
     data_management::{Dml, HasStoragePreference, ObjectReference},
