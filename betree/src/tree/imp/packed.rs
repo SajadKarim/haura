@@ -293,7 +293,7 @@ impl Size for PackedMap {
         self.data.len()
     }
 
-    fn actual_size(&self) -> Option<usize> {
+    fn actual_size(&mut self) -> Option<usize> {
         Some(self.size())
     }
 }

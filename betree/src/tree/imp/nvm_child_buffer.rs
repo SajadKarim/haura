@@ -87,12 +87,12 @@ impl<N: ObjectReference, D: Fallible + ?Sized> DeserializeWith<Archived<Vec<u8>>
     }
 }
 
-impl Size for (KeyInfo, SlicedCowBytes) {
+/*impl Size for (KeyInfo, SlicedCowBytes) {
     fn size(&self) -> usize {
         let (_keyinfo, data) = self;
         KeyInfo::static_size() + data.size()
     }
-}
+}*/
 
 impl<N: HasStoragePreference> HasStoragePreference for NVMChildBuffer<N> {
     fn current_preference(&mut self) -> Option<StoragePreference> {

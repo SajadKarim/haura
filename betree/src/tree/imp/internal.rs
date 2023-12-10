@@ -164,7 +164,7 @@ impl<T: Size> Size for InternalNode<T> {
         internal_node_base_size() + self.entries_size
     }
 
-    fn actual_size(&self) -> Option<usize> {
+    fn actual_size(&mut self) -> Option<usize> {
         Some(
             internal_node_base_size()
                 + self.pivot.iter().map(Size::size).sum::<usize>()
@@ -186,7 +186,7 @@ impl<T: Size> Size for NVMInternalNode<T> {
         internal_node_base_size() + self.meta_data.entries_size
     }
 
-    fn actual_size(&self) -> Option<usize> {
+    fn actual_size(&mut self) -> Option<usize> {
         Some(
             internal_node_base_size()
                 + self.meta_data.pivot.iter().map(Size::size).sum::<usize>()
@@ -205,13 +205,13 @@ impl<T: Size> Size for NVMInternalNode<T> {
 }
 
 impl<T: HasStoragePreference> HasStoragePreference for InternalNode<T> {
-    fn current_preference(&self) -> Option<StoragePreference> {
+    fn current_preference(&mut self) -> Option<StoragePreference> {
         self.pref
             .as_option()
             .map(|pref| self.system_storage_preference.weak_bound(&pref))
     }
 
-    fn recalculate(&self) -> StoragePreference {
+    fn recalculate(&mut self) -> StoragePreference {
         let mut pref = StoragePreference::NONE;
 
         for child in &self.children {
@@ -222,7 +222,11 @@ impl<T: HasStoragePreference> HasStoragePreference for InternalNode<T> {
         pref
     }
 
-    fn correct_preference(&self) -> StoragePreference {
+    fn recalculate_lazy(&mut self) -> StoragePreference {
+        unimplemented!("..")
+    }
+
+    fn correct_preference(&mut self) -> StoragePreference {
         self.system_storage_preference
             .weak_bound(&self.recalculate())
     }
@@ -237,13 +241,13 @@ impl<T: HasStoragePreference> HasStoragePreference for InternalNode<T> {
 }
 
 impl<T: HasStoragePreference> HasStoragePreference for NVMInternalNode<T> {
-    fn current_preference(&self) -> Option<StoragePreference> {
+    fn current_preference(&mut self) -> Option<StoragePreference> {
         self.meta_data.pref
             .as_option()
             .map(|pref| self.meta_data.system_storage_preference.weak_bound(&pref))
     }
 
-    fn recalculate(&self) -> StoragePreference {
+    fn recalculate(&mut self) -> StoragePreference {
         let mut pref = StoragePreference::NONE;
 
         for child in &self.data.children {
@@ -254,7 +258,11 @@ impl<T: HasStoragePreference> HasStoragePreference for NVMInternalNode<T> {
         pref
     }
 
-    fn correct_preference(&self) -> StoragePreference {
+    fn recalculate_lazy(&mut self) -> StoragePreference {
+        unimplemented!("..")
+    }
+
+    fn correct_preference(&mut self) -> StoragePreference {
         self.meta_data.system_storage_preference
             .weak_bound(&self.recalculate())
     }

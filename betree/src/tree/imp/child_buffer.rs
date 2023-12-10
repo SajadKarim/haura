@@ -39,7 +39,7 @@ impl Size for (KeyInfo, SlicedCowBytes) {
 }
 
 impl<N: HasStoragePreference> HasStoragePreference for ChildBuffer<N> {
-    fn current_preference(&self) -> Option<StoragePreference> {
+    fn current_preference(&mut self) -> Option<StoragePreference> {
         self.messages_preference
             .as_option()
             .map(|msg_pref| {
@@ -51,7 +51,7 @@ impl<N: HasStoragePreference> HasStoragePreference for ChildBuffer<N> {
             .map(|p| self.system_storage_preference.weak_bound(&p))
     }
 
-    fn recalculate(&self) -> StoragePreference {
+    fn recalculate(&mut self) -> StoragePreference {
         let mut pref = StoragePreference::NONE;
 
         for (keyinfo, _v) in self.buffer.values() {
@@ -62,6 +62,19 @@ impl<N: HasStoragePreference> HasStoragePreference for ChildBuffer<N> {
 
         // pref can't be lower than that of child nodes
         StoragePreference::choose_faster(pref, self.node_pointer.read().correct_preference())
+    }
+
+    fn recalculate_lazy(&mut self) -> StoragePreference {
+        let mut pref = StoragePreference::NONE;
+
+        for (keyinfo, _v) in self.buffer.values() {
+            pref.upgrade(keyinfo.storage_preference)
+        }
+
+        self.messages_preference.set(pref);
+
+        // pref can't be lower than that of child nodes
+        StoragePreference::choose_faster(pref, self.node_pointer.write().correct_preference())
     }
 
     fn system_storage_preference(&self) -> StoragePreference {
@@ -117,7 +130,7 @@ impl<N: StaticSize> Size for ChildBuffer<N> {
         Self::static_size() + self.buffer_entries_size + N::static_size()
     }
 
-    fn actual_size(&self) -> Option<usize> {
+    fn actual_size(&mut self) -> Option<usize> {
         Some(
             Self::static_size()
                 + N::static_size()

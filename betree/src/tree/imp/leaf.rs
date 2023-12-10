@@ -62,7 +62,7 @@ impl Size for LeafNode {
         packed::HEADER_FIXED_LEN + self.entries_size
     }
 
-    fn actual_size(&self) -> Option<usize> {
+    fn actual_size(&mut self) -> Option<usize> {
         Some(
             packed::HEADER_FIXED_LEN
                 + self
@@ -79,7 +79,7 @@ impl Size for NVMLeafNode {
         packed::HEADER_FIXED_LEN + self.meta_data.entries_size
     }
 
-    fn actual_size(&self) -> Option<usize> {
+    fn actual_size(&mut self) -> Option<usize> {
         Some(
             packed::HEADER_FIXED_LEN
                 + self.data
@@ -93,13 +93,13 @@ impl Size for NVMLeafNode {
 }
 
 impl HasStoragePreference for LeafNode {
-    fn current_preference(&self) -> Option<StoragePreference> {
+    fn current_preference(&mut self) -> Option<StoragePreference> {
         self.storage_preference
             .as_option()
             .map(|pref| self.system_storage_preference.weak_bound(&pref))
     }
 
-    fn recalculate(&self) -> StoragePreference {
+    fn recalculate(&mut self) -> StoragePreference {
         let mut pref = StoragePreference::NONE;
 
         for (keyinfo, _v) in self.entries.values() {
@@ -108,6 +108,10 @@ impl HasStoragePreference for LeafNode {
 
         self.storage_preference.set(pref);
         self.system_storage_preference.weak_bound(&pref)
+    }
+
+    fn recalculate_lazy(&mut self) -> StoragePreference {
+        unimplemented!("..")
     }
 
     fn system_storage_preference(&self) -> StoragePreference {
@@ -120,13 +124,13 @@ impl HasStoragePreference for LeafNode {
 }
 
 impl HasStoragePreference for NVMLeafNode {
-    fn current_preference(&self) -> Option<StoragePreference> {
+    fn current_preference(&mut self) -> Option<StoragePreference> {
         self.meta_data.storage_preference
             .as_option()
             .map(|pref| self.meta_data.system_storage_preference.weak_bound(&pref))
     }
 
-    fn recalculate(&self) -> StoragePreference {
+    fn recalculate(&mut self) -> StoragePreference {
         let mut pref = StoragePreference::NONE;
 
         for (keyinfo, _v) in self.data.entries.values() {
@@ -135,6 +139,10 @@ impl HasStoragePreference for NVMLeafNode {
 
         self.meta_data.storage_preference.set(pref);
         self.meta_data.system_storage_preference.weak_bound(&pref)
+    }
+
+    fn recalculate_lazy(&mut self) -> StoragePreference {
+        unimplemented!("..")
     }
 
     fn system_storage_preference(&self) -> StoragePreference {
