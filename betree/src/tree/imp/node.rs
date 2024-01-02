@@ -233,7 +233,7 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
                 let bytes_meta_data = serializer_meta_data.into_serializer().into_inner();
 
                 let mut serializer_data = rkyv::ser::serializers::AllocSerializer::<0>::default();
-                serializer_data.serialize_value(leaf.data.as_ref().unwrap()).unwrap();
+                serializer_data.serialize_value(leaf.data.read().as_ref().unwrap().as_ref().unwrap()).unwrap();
                 let bytes_data = serializer_data.into_serializer().into_inner();
 
                 writer.write_all((NodeInnerType::NVMLeaf as u32).to_be_bytes().as_ref())?;
@@ -344,7 +344,7 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
                 pool: Some(pool),
                 disk_offset: Some(_offset),
                 meta_data : meta_data,
-                data : Some(data),
+                data : std::sync::Arc::new(std::sync::RwLock::new(None)), //Some(data),
                 meta_data_size: meta_data_len,
                 data_size: data_len,
                 data_start: data_start,
@@ -710,7 +710,7 @@ impl<N: HasStoragePreference> Node<N> {
                 }
             },
             NVMLeaf(ref nvmleaf) => GetRangeResult::Data(Box::new(
-                nvmleaf.entries().iter().map(|(k, v)| (&k[..], v.clone())),
+                nvmleaf.entries().clone().iter().map(|(k, v)| (&k[..], v.clone())),
             )),
             NVMInternal(ref nvminternal) => {
                 let prefetch_option = if nvminternal.level() == 1 {
