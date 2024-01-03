@@ -200,6 +200,11 @@ where
                         }
                         self.get_node(np)?
                     }
+                    GetRangeResult::NVMData {
+                        np
+                    } => {
+                        unimplemented!("");
+                    }
                     GetRangeResult::Data(leaf_entries) => {
                         self.apply_messages(
                             &left_pivot_key,

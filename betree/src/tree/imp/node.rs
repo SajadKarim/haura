@@ -650,6 +650,9 @@ pub(super) enum PivotGetMutResult<'a, N: 'a> {
 
 pub(super) enum GetRangeResult<'a, T, N: 'a> {
     Data(T),
+    NVMData {
+        np: &'a std::sync::Arc<std::sync::RwLock<Option<NVMLeafNodeData>>>,
+    },
     NextNode {
         np: &'a RwLock<N>,
         prefetch_option: Option<&'a RwLock<N>>,
@@ -709,9 +712,12 @@ impl<N: HasStoragePreference> Node<N> {
                     np,
                 }
             },
-            NVMLeaf(ref nvmleaf) => GetRangeResult::Data(Box::new(
-                nvmleaf.entries().clone().iter().map(|(k, v)| (&k[..], v.clone())),
-            )),
+            NVMLeaf(ref nvmleaf) => {
+                let np = nvmleaf.entries();
+                GetRangeResult::NVMData {
+                    np
+                }
+            },
             NVMInternal(ref nvminternal) => {
                 let prefetch_option = if nvminternal.level() == 1 {
                     nvminternal.get_next_node(key)
@@ -1129,7 +1135,7 @@ impl<N: HasStoragePreference + ObjectReference> Node<N> {
                 storage: self.correct_preference(),
                 system_storage: self.system_storage_preference(),
                 level: self.level(),
-                entry_count: nvmleaf.entries().len(),
+                entry_count: nvmleaf.entries().read().as_ref().unwrap().as_ref().unwrap().entries.len(),
             },
             NVMInternal(ref nvminternal) => NodeInfo::Internal {
                 storage: self.correct_preference(),

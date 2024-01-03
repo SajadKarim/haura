@@ -274,9 +274,12 @@ impl NVMLeafNode
         self.data.read().as_ref().unwrap().as_ref().unwrap().entries.get(key).cloned()
     }
 
-    pub(in crate::tree) fn entries(&self) -> &BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)> {
-        &self.data.read().as_ref().unwrap().as_ref().unwrap().entries
+    pub(in crate::tree) fn entries(&self) -> &std::sync::Arc<std::sync::RwLock<Option<NVMLeafNodeData>>> {
+        &self.data
     }
+    // pub(in crate::tree) fn entries(&self) -> &BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)> {
+    //     &self.data.read().as_ref().unwrap().as_ref().unwrap().entries
+    // }
 
     pub(in crate::tree) fn entry_info(&mut self, key: &[u8]) -> Option<&mut KeyInfo> {
         unimplemented!("")
