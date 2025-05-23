@@ -13,7 +13,16 @@
 //! data blobs as in the [crate::object] module.
 
 use crate::{
-    buffer::Buf, cache::AddSize, database::DatasetId, migration::DmlMsg, size::{Size, StaticSize}, storage_pool::StoragePoolLayer, tree::{PivotKey, StorageKind}, StoragePreference
+    buffer::Buf,
+    cache::AddSize,
+    checksum::{Builder, Checksum},
+    database::DatasetId,
+    migration::DmlMsg,
+    size::{Size, StaticSize},
+    storage_pool::StoragePoolLayer,
+    tree::{PivotKey, StorageKind},
+    StoragePreference,
+    compression::CompressionBuilder,
 };
 use parking_lot::Mutex;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -108,15 +117,22 @@ pub struct PreparePack();
 /// Which integrity mode is used by the nodes. Can be used to skip the
 /// processing of an entire node if it is not required to ensure integrity of
 /// data.
-#[derive(
-    Serialize, Deserialize, rkyv::Serialize, rkyv::Deserialize, rkyv::Archive, Debug, Clone, Copy,
-)]
-pub enum IntegrityMode {
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub enum IntegrityMode<C> {
     /// The default mode. Checksums are stored with the object pointers. All
     /// data is processed initially.
     External,
     /// Integrity is ensured by the node implementation itself.
-    Internal,
+    Internal(C),
+}
+
+impl<C> IntegrityMode<C> {
+    pub fn checksum(&self) -> Option<&C> {
+        match self {
+            IntegrityMode::Internal(csum) => Some(csum),
+            _ => None,
+        }
+    }
 }
 
 /// An object managed by a [Dml].
@@ -134,9 +150,19 @@ pub trait Object<R>: Size + Sized + HasStoragePreference {
 
     /// Packs the object into the given `writer`. Returns an option if the node
     /// can be read with a subset of data starting from the start of the range.
-    fn pack<W: Write>(&self, writer: W, pp: PreparePack) -> Result<IntegrityMode, io::Error>;
+    fn pack<W: Write, F: Fn(&[u8]) -> C, C: Checksum>(
+        &self,
+        writer: W,
+        pp: PreparePack,
+        csum_builder: F,
+        compressor: Arc<std::sync::RwLock<Box<dyn CompressionBuilder>>>
+    ) -> Result<IntegrityMode<C>, io::Error>;
     /// Unpacks the object from the given `data`.
-    fn unpack_at(d_id: DatasetId, data: Buf) -> Result<Self, io::Error>;
+    fn unpack_at<C: Checksum>(
+        d_id: DatasetId,
+        data: Buf,
+        integrity_mode: IntegrityMode<C>,
+    ) -> Result<Self, io::Error>;
 
     /// Returns debug information about an object.
     fn debug_info(&self) -> String;

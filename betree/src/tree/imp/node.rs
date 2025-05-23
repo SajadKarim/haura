@@ -14,6 +14,7 @@ use super::{
 };
 use crate::{
     buffer::Buf,
+    checksum::{Builder, Checksum},
     cow_bytes::{CowBytes, SlicedCowBytes},
     data_management::{
         Dml, HasStoragePreference, IntegrityMode, Object, ObjectReference, PreparePack,
@@ -22,6 +23,7 @@ use crate::{
     size::{Size, SizeMut, StaticSize},
     tree::{pivot_key::LocalPivotKey, MessageAction, StorageKind},
     StoragePreference,
+    compression::CompressionBuilder,
 };
 use bincode::{deserialize, serialize_into};
 use parking_lot::RwLock;
@@ -31,6 +33,8 @@ use std::{
     io::{self, Write},
     mem::replace,
 };
+
+use std::sync::{Arc, Mutex};
 
 /// The tree node type.
 #[derive(Debug)]
@@ -227,7 +231,13 @@ impl<R: HasStoragePreference + StaticSize> HasStoragePreference for Node<R> {
 }
 
 impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<R> {
-    fn pack<W: Write>(&self, mut writer: W, _: PreparePack) -> Result<IntegrityMode, io::Error> {
+    fn pack<W: Write, F: Fn(&[u8]) -> C, C: Checksum>(
+        &self,
+        mut writer: W,
+        _: PreparePack,
+        csum_builder: F, 
+        compressor: Arc<std::sync::RwLock<Box<dyn CompressionBuilder>>>
+    ) -> Result<IntegrityMode<C>, io::Error> {
         match self.0 {
             PackedLeaf(ref map) => writer
                 .write_all(map.inner())
@@ -244,7 +254,7 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
             }
             MemLeaf(ref leaf) => {
                 writer.write_all((NodeInnerType::CopylessLeaf as u32).to_be_bytes().as_ref())?;
-                leaf.pack(writer)
+                leaf.pack(writer, csum_builder, compressor)
             }
             CopylessInternal(ref cpl_internal) => {
                 writer.write_all(
@@ -252,12 +262,16 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
                         .to_be_bytes()
                         .as_ref(),
                 )?;
-                cpl_internal.pack(writer)
+                cpl_internal.pack(writer, csum_builder, compressor)
             }
         }
     }
 
-    fn unpack_at(d_id: DatasetId, data: Buf) -> Result<Self, io::Error> {
+    fn unpack_at<C: Checksum>(
+        d_id: DatasetId,
+        data: Buf,
+        integrity_mode: IntegrityMode<C>,
+    ) -> Result<Self, io::Error> {
         if data[0..4] == (NodeInnerType::Internal as u32).to_be_bytes() {
             match deserialize::<InternalNode<_>>(&data[4..]) {
                 Ok(internal) => Ok(Node(Internal(internal.complete_object_refs(d_id)))),
@@ -272,11 +286,13 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
             Ok(Node(PackedLeaf(PackedMap::new(data))))
         } else if data[0..4] == (NodeInnerType::CopylessInternal as u32).to_be_bytes() {
             Ok(Node(CopylessInternal(
-                CopylessInternalNode::unpack(data)?.complete_object_refs(d_id),
+                CopylessInternalNode::unpack(data, integrity_mode.checksum().unwrap().clone())?
+                    .complete_object_refs(d_id),
             )))
         } else if data[0..4] == (NodeInnerType::CopylessLeaf as u32).to_be_bytes() {
             Ok(Node(MemLeaf(PackedChildBuffer::unpack(
                 data.into_sliced_cow_bytes().slice_from(4),
+                integrity_mode.checksum().unwrap().clone(),
             )?)))
         } else {
             panic!(
@@ -519,7 +535,7 @@ impl<N: HasStoragePreference + StaticSize> Node<N> {
 
     pub(super) fn empty_leaf(kind: StorageKind) -> Self {
         match kind {
-            StorageKind::Memory => Node(MemLeaf(PackedChildBuffer::new(true))),
+            StorageKind::Memory => {Node(MemLeaf(PackedChildBuffer::new(true)))},
             _ => Node(Leaf(LeafNode::new())),
         }
     }

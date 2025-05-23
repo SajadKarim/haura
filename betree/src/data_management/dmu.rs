@@ -45,7 +45,7 @@ pub struct Dmu<E: 'static, SPL: StoragePoolLayer>
 where
     SPL::Checksum: StaticSize,
 {
-    default_compression: Box<dyn CompressionBuilder>,
+    default_compression: Arc<std::sync::RwLock<Box<dyn CompressionBuilder>>>,
     // NOTE: Why was this included in the first place? Delayed Compression? Streaming Compression?
     // default_compression_state: C::CompressionState,
     default_storage_class: u8,
@@ -76,7 +76,7 @@ where
 {
     /// Returns a new `Dmu`.
     pub fn new(
-        default_compression: Box<dyn CompressionBuilder>,
+        default_compression: Arc<std::sync::RwLock<Box<dyn CompressionBuilder>>>,
         default_checksum_builder: <SPL::Checksum as Checksum>::Builder,
         default_storage_class: u8,
         pool: SPL,
@@ -459,23 +459,30 @@ where
         // Block -> Mem: Writeback new children, Create InternalNode, Continue
         // with writeback
 
-        let compression = &self.default_compression;
-        let (partial_read, compressed_data) = {
+        let compression = &*self.default_compression.read().unwrap();
+        //let state = builder.new_compression().unwrap();
+        //let compression = &self.default_compression;
+        let (integrity_mode, compressed_data) = {
             // FIXME: cache this
-            let mut state = compression.new_compression()?;
+            let mut state_ref = compression.new_compression().unwrap();
+            let mut state =  state_ref.write().unwrap();
             let mut buf = crate::buffer::BufWrite::with_capacity(Block::round_up_from_bytes(
                 object_size as u32,
             ));
-            let part = {
+            let integrity_mode = {
                 let pp = object.prepare_pack(
                     self.spl().storage_kind_map()[storage_class as usize],
                     &pivot_key,
                 )?;
-                let part = object.pack(&mut buf, pp)?;
+                let part = object.pack(&mut buf, pp, |bytes| {
+                    let mut builder = self.default_checksum_builder.build();
+                    builder.ingest(bytes);
+                    builder.finish()
+                }, self.default_compression.clone())?;
                 drop(object);
                 part
             };
-            (part, state.finish(buf.into_buf())?)
+            (integrity_mode, state.finish(buf.into_buf())?)
         };
 
         assert!(compressed_data.len() <= u32::max_value() as usize);
@@ -488,13 +495,13 @@ where
 
         let info = self.modified_info.lock().remove(&mid).unwrap();
 
-        let checksum = match partial_read {
+        let checksum = match integrity_mode {
             IntegrityMode::External => {
                 let mut state = self.default_checksum_builder.build();
                 state.ingest(compressed_data.as_ref());
                 state.finish()
             }
-            IntegrityMode::Internal => self.default_checksum_builder.empty(),
+            IntegrityMode::Internal(_) => self.default_checksum_builder.empty(),
         };
 
         self.pool.begin_write(compressed_data, offset)?;
@@ -506,7 +513,7 @@ where
             decompression_tag: compression.decompression_tag(),
             generation,
             info,
-            integrity_mode: partial_read,
+            integrity_mode,
         };
 
         let was_present;
@@ -1077,7 +1084,7 @@ where
                 .decompression_tag()
                 .new_decompression()?
                 .decompress(compressed_data)?;
-            Object::unpack_at(ptr.info(), data)?
+            Object::unpack_at(ptr.info(), data, ptr.integrity_mode.clone())?
         };
         let key = ObjectKey::Unmodified {
             offset: ptr.offset(),

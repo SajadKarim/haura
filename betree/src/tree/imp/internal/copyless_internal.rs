@@ -1,6 +1,7 @@
 //! Implementation of the [DisjointInternalNode] node type.
 use crate::{
     buffer::Buf,
+    checksum::Checksum,
     data_management::IntegrityMode,
     tree::imp::{
         node::{PivotGetMutResult, PivotGetResult},
@@ -21,12 +22,15 @@ use crate::{
     storage_pool::AtomicSystemStoragePreference,
     tree::{imp::MIN_FANOUT, pivot_key::LocalPivotKey, KeyInfo},
     AtomicStoragePreference, StoragePreference,
+    compression::CompressionBuilder,
 };
 use parking_lot::RwLock;
 use std::{borrow::Borrow, collections::BTreeMap, mem::replace};
 
 use super::serialize_nodepointer;
 use serde::{Deserialize, Serialize};
+
+use std::sync::{Arc, Mutex};
 
 pub(in crate::tree::imp) struct CopylessInternalNode<N> {
     // FIXME: This type can be used as zero-copy
@@ -302,21 +306,35 @@ impl<N> CopylessInternalNode<N> {
     /// - InternalNodeMetaData bytes
     /// - [child PTR; LEN]
     /// - [child BUFFER; LEN]
-    pub fn pack<W: std::io::Write>(&self, mut w: W) -> Result<IntegrityMode, std::io::Error>
+    pub fn pack<W: std::io::Write, C, F>(
+        &self,
+        mut w: W,
+        csum_builder: F,
+        compressor: Arc<std::sync::RwLock<Box<dyn CompressionBuilder>>>,
+    ) -> Result<IntegrityMode<C>, std::io::Error>
     where
         N: serde::Serialize + StaticSize,
+        F: Fn(&[u8]) -> C,
+        C: Checksum,
     {
+        use std::io::Write;
+
+        let mut tmp = vec![];
         let bytes_meta_data_len = bincode::serialized_size(&self.meta_data)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        w.write_all(&(bytes_meta_data_len as u32).to_le_bytes())?;
+        tmp.write_all(&(bytes_meta_data_len as u32).to_le_bytes())?;
         bincode::serialize_into(&mut w, &self.meta_data)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
         let bytes_child_len = bincode::serialized_size(&self.children)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        w.write_all(&(bytes_child_len as u32).to_le_bytes())?;
+        tmp.write_all(&(bytes_child_len as u32).to_le_bytes())?;
         bincode::serialize_into(&mut w, &self.children)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+        let csum = csum_builder(&tmp);
+
+        let mut tmp_buffers = vec![];
 
         for (size, child) in self
             .meta_data
@@ -328,14 +346,18 @@ impl<N> CopylessInternalNode<N> {
         }
 
         for child in self.children.iter() {
-            child.buffer.pack(&mut w)?;
+            let integrity = child.buffer.pack(&mut tmp_buffers, &csum_builder, compressor.clone())?;
+            bincode::serialize_into(&mut tmp, &integrity)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         }
 
-        Ok(IntegrityMode::Internal)
+        w.write_all(&tmp)?;
+        w.write_all(&tmp_buffers)?;
+        Ok(IntegrityMode::Internal(csum))
     }
 
     /// Read object from a byte buffer and instantiate it.
-    pub fn unpack(buf: Buf) -> Result<Self, std::io::Error>
+    pub fn unpack<C: Checksum>(buf: Buf, csum: C) -> Result<Self, std::io::Error>
     where
         N: serde::de::DeserializeOwned + StaticSize,
     {
@@ -356,9 +378,17 @@ impl<N> CopylessInternalNode<N> {
         let mut ptrs: Vec<ChildLink<N>> = bincode::deserialize(&buf[cursor..cursor + ptrs_len])
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         cursor += ptrs_len;
+        let mut checksums: Vec<C> = vec![];
+        for _ in ptrs.iter() {
+            checksums.push(
+                bincode::deserialize(&buf[cursor..cursor + C::static_size()])
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?,
+            );
+            cursor += C::static_size();
+        }
         for idx in 0..meta_data.entries_sizes.len() {
             let sub = buf.clone().slice_from(cursor as u32);
-            let b = PackedChildBuffer::unpack(sub)?;
+            let b: PackedChildBuffer = PackedChildBuffer::unpack(sub, checksums[idx].clone())?;
             cursor += b.size();
             assert_eq!(meta_data.entries_sizes[idx], b.size());
             let _ = std::mem::replace(&mut ptrs[idx].buffer, b);
@@ -379,27 +409,6 @@ impl<N> CopylessInternalNode<N> {
             "child buffer got way too large: {:#?}",
             std::backtrace::Backtrace::force_capture()
         );
-        // let old = self.meta_data.entries_sizes[idx];
-        // let new = self.children[idx].buffer.size();
-
-        // // FIXME: This is a small workaround to see if the sizes are recorded
-        // // also somewhere else false.
-        // let size_delta = new as isize - old as isize;
-
-        // // assert!(size_delta != 0);
-        // if size_delta > 0 {
-        //     self.meta_data.entries_sizes[idx] += size_delta as usize;
-        //     assert_eq!(
-        //         self.children[idx].buffer.size(),
-        //         self.meta_data.entries_sizes[idx]
-        //     );
-        // } else {
-        //     self.meta_data.entries_sizes[idx] -= -size_delta as usize;
-        //     assert_eq!(
-        //         self.children[idx].buffer.size(),
-        //         self.meta_data.entries_sizes[idx]
-        //     );
-        // }
     }
 
     pub(crate) fn has_too_high_fanout(&self, max_size: usize) -> bool {
