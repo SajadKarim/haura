@@ -23,6 +23,7 @@ use crate::{
     tree::{imp::MIN_FANOUT, pivot_key::LocalPivotKey, KeyInfo},
     AtomicStoragePreference, StoragePreference,
     compression::CompressionBuilder,
+    compression::DecompressionTag,
 };
 use parking_lot::RwLock;
 use std::{borrow::Borrow, collections::BTreeMap, mem::replace};
@@ -357,7 +358,7 @@ impl<N> CopylessInternalNode<N> {
     }
 
     /// Read object from a byte buffer and instantiate it.
-    pub fn unpack<C: Checksum>(buf: Buf, csum: C) -> Result<Self, std::io::Error>
+    pub fn unpack<C: Checksum>(buf: Buf, csum: C, decompressor: DecompressionTag) -> Result<Self, std::io::Error>
     where
         N: serde::de::DeserializeOwned + StaticSize,
     {
@@ -388,7 +389,7 @@ impl<N> CopylessInternalNode<N> {
         }
         for idx in 0..meta_data.entries_sizes.len() {
             let sub = buf.clone().slice_from(cursor as u32);
-            let b: PackedChildBuffer = PackedChildBuffer::unpack(sub, checksums[idx].clone())?;
+            let b: PackedChildBuffer = PackedChildBuffer::unpack(sub, checksums[idx].clone(), decompressor)?;
             cursor += b.size();
             assert_eq!(meta_data.entries_sizes[idx], b.size());
             let _ = std::mem::replace(&mut ptrs[idx].buffer, b);
