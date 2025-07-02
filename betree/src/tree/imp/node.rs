@@ -76,6 +76,16 @@ impl StorageMap {
     pub fn min_size<N: HasStoragePreference + StaticSize>(&self, node: &Node<N>) -> Option<usize> {
         let pref = node.correct_preference();
         Some(match (&node.0, self.get(pref)) {
+            (PackedLeaf(_), StorageKind::Hdd)
+            | (Leaf(_), StorageKind::Hdd)
+            | (MemLeaf(_), StorageKind::Hdd) => mib!(1),
+            (PackedLeaf(_), StorageKind::Ssd)
+            | (Leaf(_), StorageKind::Ssd)
+            | (MemLeaf(_), StorageKind::Ssd) => mib!(1),
+            (PackedLeaf(_), StorageKind::Memory)
+            | (Leaf(_), StorageKind::Memory)
+            | (MemLeaf(_), StorageKind::Memory) => mib!(1),
+            (Internal(_), _) => return None,
             (CopylessInternal(_), _) => return None,
             (_, StorageKind::Hdd) => mib!(1),
             (_, StorageKind::Ssd) => kib!(512),
