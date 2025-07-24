@@ -187,6 +187,14 @@ impl DatabaseConfiguration {
 impl DatabaseConfiguration {
     /// Create new [StoragePoolUnit] instance. This is the first step of the DB initialization.
     pub fn new_spu(&self) -> Result<RootSpu> {
+
+        #[cfg(feature = "nvm")]
+println!("✅ NVM feature is enabled!");
+
+
+#[cfg(not(feature = "nvm"))]
+println!("⚠️ NVM feature is NOT enabled!");
+
         Ok(StoragePoolUnit::<Checksum>::new(
             &self.storage,
             self.default_storage_class,

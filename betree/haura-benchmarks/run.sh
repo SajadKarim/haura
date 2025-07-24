@@ -50,12 +50,32 @@ function run {
     mkdir -p "$out_path"
 
     pushd "$out_path" || return
-
+    echo "$ROOT"
     echo "running $mode with these settings:"
     env | grep BETREE__
     env >"env"
+    #"$ROOT/../../target/release/bectl" config print-active >"config"
+    #"$ROOT/target/release/betree-perf" "$mode" "$@"
+    
+    export PATH="$HOME/.cargo/bin:$PATH"
+    cargo build --manifest-path "$ROOT/Cargo.toml" --release --features "nvm"
+    #cargo build --manifest-path "$ROOT/Cargo.toml" --features "nvm"
+
+
     "$ROOT/../../target/release/bectl" config print-active >"config"
-    "$ROOT/target/release/betree-perf" "$mode" "$@"
+    #"$ROOT/target/release/betree-perf" "$mode" "$@" 
+
+    
+    #perf record -o perf.data -- "$ROOT/target/release/betree-perf" "$mode" "$@"
+    #perf report --input=perf.data --stdio > perf-report.txt
+
+    export PATH="$HOME/.cargo/bin:$PATH"
+    #cargo flamegraph --manifest-path "$ROOT/Cargo.toml" --bin betree-perf --features nvm -- "$mode" "$@"
+    cargo flamegraph --manifest-path "$ROOT/Cargo.toml" --bin betree-perf --features nvm -- "$mode" "$@"
+    #mv flamegraph.svg "$out_path/flamegraph_$(date +%s).svg"
+
+    #rm -f perf.data
+    rm -f "$ROOT/$out_path/perf.data"
 
     echo "merging results into $out_path/out.jsonl"
     "$ROOT/target/release/json-merge" \
@@ -206,51 +226,76 @@ function ci() {
 }
 
 function ycsb_a() {
-    run "$RUN_IDENT" ycsb_a_ssd ycsb-a "$((2 * 1024 * 1024 * 1024))" 0 8
+    run "$RUN_IDENT" ycsb_a_ssd ycsb-a "$((2 * 1024 * 1024 * 1024))" 0 5
 #    run "$RUN_IDENT" ycsb_a_memory ycsb-a "$((4 * 1024 * 1024 * 1024))" 1 6
 }
 
 function ycsb_b() {
-    run "$RUN_IDENT" ycsb_b_ssd ycsb-b "$((2 * 1024 * 1024 * 1024))" 0 8
+    run "$RUN_IDENT" ycsb_b_ssd ycsb-b "$((2 * 1024 * 1024 * 1024))" 0 5
 #    run "$RUN_IDENT" ycsb_b_memory ycsb-b "$((4 * 1024 * 1024 * 1024))" 1 6
 }
 
 function ycsb_c() {
-    run "$RUN_IDENT" ycsb_c_ssd ycsb-c "$((2 * 1024 * 1024 * 1024))" 0 8
+    run "$RUN_IDENT" ycsb_c_ssd ycsb-c "$((2 * 1024 * 1024 * 1024))" 0 5
 #    run "$RUN_IDENT" ycsb_c_memory ycsb-c "$((4 * 1024 * 1024 * 1024))" 1 6
 }
 
 function ycsb_d() {
-    run "$RUN_IDENT" ycsb_d_ssd ycsb-d "$((2 * 1024 * 1024 * 1024))" 0 8
+    run "$RUN_IDENT" ycsb_d_ssd ycsb-d "$((2 * 1024 * 1024 * 1024))" 0 5
 #    run "$RUN_IDENT" ycsb_d_memory ycsb-d "$((4 * 1024 * 1024 * 1024))" 1 6
 }
 
 function ycsb_e() {
-    run "$RUN_IDENT" ycsb_e_ssd ycsb-e "$((2 * 1024 * 1024 * 1024))" 0 8
+    run "$RUN_IDENT" ycsb_e_ssd ycsb-e "$((2 * 1024 * 1024 * 1024))" 0 5
 #    run "$RUN_IDENT" ycsb_e_memory ycsb-e "$((4 * 1024 * 1024 * 1024))" 1 6
 }
 
 function ycsb_f() {
-    run "$RUN_IDENT" ycsb_f_ssd ycsb-f "$((2 * 1024 * 1024 * 1024))" 0 8
+    run "$RUN_IDENT" ycsb_f_ssd ycsb-f "$((2 * 1024 * 1024 * 1024))" 0 5
 #    run "$RUN_IDENT" ycsb_f_memory ycsb-f "$((4 * 1024 * 1024 * 1024))" 1 6
 }
 
 function ycsb_g() {
-    run "$RUN_IDENT" ycsb_g_ssd ycsb-g "$((1 * 1024 * 1024))" 0 8
-#    run "$RUN_IDENT" ycsb_g_memory ycsb-g "$((768 * 1024 * 1024))" 1 8
+	  local  localtype="ycsb_b_mem_32k"
+    run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 1
+    run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 2
+    #run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 3
+    #run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 4
+    #run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 5
+    #run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 6
+    #run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 7
+    #run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 8
+    #run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 9
+    #run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 10
+    #run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 11
+    #run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 12
+    #run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 13
+    #run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 14
+    #run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 15
+    #run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 16
+    #run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 17
+    #run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 18
+    #run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 19
+    run "$RUN_IDENT" $localtype ycsb-g "$((1 * 1024 * 1024))" 0 20
+
+
+
+    #run "$RUN_IDENT" ycsb_b_block_32k ycsb-g "$((1 * 1024 * 1024))" 0 5
+#    run "$RUN_IDENT" ycsbg_memory ycsb-g "$((768 * 1024 * 1024))" 1 8
 }
 
 function ycsb_h() {
-    run "$RUN_IDENT" ycsb_h_ssd ycsb-h "$((1 * 1024 * 1024))" 0 8
+    run "$RUN_IDENT" ycsb_w_b_ssd_32k ycsb-h "$((1 * 1024 * 1024))" 0 3
 #    run "$RUN_IDENT" ycsb_h_memory ycsb-h "$((768 * 1024 * 1024))" 1 8
 }
 
 function ycsb_i() {
-    run "$RUN_IDENT" ycsb_i_ssd ycsb-i "$((1 * 1024 * 1024))" 0 8
+    run "$RUN_IDENT" ycsb_i_ssd ycsb-i "$((1 * 1024 * 1024))" 0 5
 #    run "$RUN_IDENT" ycsb_i_memory ycsb-i "$((768 * 1024 * 1024))" 1 8
 }
 
-cargo build --release
+#cargo build --release --features nvm
+cargo build --features nvm
 
 if [ -z "$BETREE_CONFIG" ]; then
     export BETREE_CONFIG="$PWD/perf-config.json"
@@ -291,12 +336,12 @@ ensure_config
 #checkpoints
 #switchover
 #ingest
-ycsb_a
-ycsb_b
-ycsb_c
-ycsb_d
-ycsb_e
-ycsb_f
+#ycsb_a
+#ycsb_b
+#ycsb_c
+#ycsb_d
+#ycsb_e
+#ycsb_f
 ycsb_g
-ycsb_h
-ycsb_i
+#ycsb_h
+#ycsb_i

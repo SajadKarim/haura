@@ -48,7 +48,7 @@ use std::sync::Arc;
 
 
 // Default in YCSB, 10 x 100 bytes field in one struct.
-const ENTRY_SIZE: usize = 1*1000;
+const ENTRY_SIZE: usize = 32*1000;
 // Default of YCSB
 const ZIPF_EXP: f64 = 0.99;
 
@@ -560,11 +560,12 @@ pub fn f(mut client: KvClient, size: u64, threads: usize, runtime: u64) {
     }
 }
 
+/*
 pub fn g(mut client: KvClient, size: u64, threads: usize, runtime: u64) {
     println!("Running YCSB Workload G");
     println!("Filling KV store...");
     //let mut keys = client.fill_entries(size / ENTRY_SIZE as u64, ENTRY_SIZE as u32);
-    let mut keys = client.fill_entries_from_path("/home/skarim/workspace/code/smash/fia0/haura/betree/haura-benchmarks/silesia_corpus/", ENTRY_SIZE as u32);
+    let mut keys = client.fill_entries_from_path("/home/skarim/Code/smash/haura/betree/haura-benchmarks/silesia_corpus", ENTRY_SIZE as u32);
     keys.shuffle(client.rng());
 
 // Estimate entries per 128KB leaf: value(1000B) + key(8B) + overhead(~8B)
@@ -655,6 +656,81 @@ pub fn g(mut client: KvClient, size: u64, threads: usize, runtime: u64) {
         println!("          {} ns avg", end.as_nanos() / total);
     }
 }
+*/
+
+//use rand::seq::SliceRandom;
+use rand_xoshiro::Xoshiro256Plus;
+//use rand::SeedableRng;
+
+pub fn g(mut client: KvClient, size: u64, workers: usize, runtime: u64) {
+    println!("Running YCSB Workload G (Uniform Reads)");
+    println!("Filling KV store...");
+    let mut keys = client.fill_entries_from_path(
+        "/home/skarim/Code/smash/haura/betree/haura-benchmarks/silesia_corpus",
+        ENTRY_SIZE as u32,
+    );
+    keys.shuffle(client.rng());
+
+    println!("Using full key set: {} keys", keys.len());
+
+    println!("Creating distribution...");
+
+    let f = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .open("ycsb_g.csv")
+        .unwrap();
+    let mut w = std::io::BufWriter::new(f);
+    w.write_all(b"threads,ops,time_ns\n").unwrap();
+
+    //for workers in [1, 5, 10, 15, 20, 25] {
+        let threads = (0..workers)
+            .map(|_| std::sync::mpsc::channel::<std::time::Instant>())
+            .enumerate()
+            .map(|(id, (tx, rx))| {
+                let _keys = keys.clone();
+                let ds = client.ds.clone();
+                (
+                    std::thread::spawn(move || {
+                        let mut rng = Xoshiro256Plus::seed_from_u64(id as u64);
+                        let mut total = 0;
+                        while let Ok(start) = rx.recv() {
+                            while start.elapsed().as_secs() < 20 {
+                                for _ in 0..500 {
+                                    if let Some(k) = _keys.choose(&mut rng) {
+                                        if let Some(value) = ds.get(*k).unwrap() {
+                                            total += 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        total
+                    }),
+                    tx,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        client.db.read().drop_cache().unwrap();
+        let start = std::time::Instant::now();
+        for (_t, tx) in threads.iter() {
+            tx.send(start).unwrap();
+        }
+        let mut total = 0;
+        for (t, tx) in threads.into_iter() {
+            drop(tx);
+            total += t.join().unwrap();
+        }
+        let end = start.elapsed();
+        w.write_fmt(format_args!("{workers},{total},{}\n", end.as_nanos()))
+            .unwrap();
+        w.flush().unwrap();
+        println!("Achieved: {} ops/sec", total as f32 / end.as_secs_f32());
+        println!("          {} ns avg", end.as_nanos() / total);
+    //}
+}
+
 
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
@@ -705,7 +781,7 @@ pub fn h(mut client: KvClient, size: u64, threads: usize, runtime: u64) {
     let mut w = std::io::BufWriter::new(f);
     w.write_all(b"threads,ops,time_ns\n").unwrap();
 
-    let corpus_chunks = read_folder_chunks("/home/skarim/Code/smash/haura/betree/haura-benchmarks/silesia_corpus", 1024);
+    let corpus_chunks = read_folder_chunks("/home/skarim/Code/smash/haura/betree/haura-benchmarks/silesia_corpus", ENTRY_SIZE as usize);
     let chunk_data = std::sync::Arc::new(corpus_chunks); // Share across threads
 
 
@@ -729,8 +805,8 @@ pub fn h(mut client: KvClient, size: u64, threads: usize, runtime: u64) {
                         let mut idx = 0;
 
                         while let Ok(start) = rx.recv() {
-                            while start.elapsed().as_secs() < runtime {
-                                for jdx in 0..1000 {
+                            while start.elapsed().as_secs() < 15 {
+                                for jdx in 0..10 {
                                     let k = &shuffled_keys[jdx + idx];
                                     let chunk_idx = (jdx + idx) % chunks.len();
                                 let value = &chunks[chunk_idx];
