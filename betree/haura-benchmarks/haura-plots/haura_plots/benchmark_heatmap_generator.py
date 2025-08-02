@@ -314,7 +314,12 @@ class BenchmarkHeatmapGenerator:
                 df = df.dropna(how='all')
                 
                 # Remove columns (thread counts) that are completely empty
-                df = df.dropna(axis=1, how='all')
+                # Use a more compatible approach for older pandas versions
+                cols_to_keep = []
+                for col in df.columns:
+                    if not df[col].isna().all():
+                        cols_to_keep.append(col)
+                df = df[cols_to_keep]
             
             # Only add to heatmap_data if there's actual data (or if keeping empty and df exists)
             if not df.empty or not remove_empty:

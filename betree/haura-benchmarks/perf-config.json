@@ -31,7 +31,9 @@
     ]
   ],
   "default_storage_class": 0,
-  "compression": "None",
+  "compression": {
+    "Snappy": {}
+  },
   "cache_size": 33554432,
   "access_mode": "AlwaysCreateNew",
   "sync_interval_ms": null,

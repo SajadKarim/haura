@@ -784,16 +784,45 @@ impl PackedChildBuffer {
 
             let mut sibling_pref = StoragePreference::NONE;
             let mut split_key = None;
+            let mut found_min_size = false;
+            
             for (k, (keyinfo, v)) in buffer.iter().rev() {
                 sibling_size += k.len() + v.len() + PER_KEY_BYTES + keyinfo.size();
                 sibling_pref.upgrade(keyinfo.storage_preference);
 
                 if sibling_size >= min_size {
                     split_key = Some(k.clone());
+                    found_min_size = true;
                     break;
                 }
             }
-            let split_key = split_key.unwrap();
+            
+            // If we can't find a split point that meets min_size, split at the middle
+            let split_key = if let Some(key) = split_key {
+                key
+            } else {
+                // Reset for middle split calculation
+                sibling_size = 0;
+                sibling_pref = StoragePreference::NONE;
+                
+                // Find the middle key as fallback
+                let total_keys = buffer.len();
+                let middle_idx = total_keys / 2;
+                let middle_key = buffer.iter().nth(middle_idx).unwrap().0.clone();
+                
+                // Calculate size for the right half
+                for (k, (keyinfo, v)) in buffer.iter().rev() {
+                    if k >= &middle_key {
+                        sibling_size += k.len() + v.len() + PER_KEY_BYTES + keyinfo.size();
+                        sibling_pref.upgrade(keyinfo.storage_preference);
+                    } else {
+                        break;
+                    }
+                }
+                
+                middle_key
+            };
+            
             right_sibling.buffer = Map::Unpacked(buffer.split_off(&split_key));
             right_sibling.entries_size = sibling_size;
             right_sibling.messages_preference.set(sibling_pref);

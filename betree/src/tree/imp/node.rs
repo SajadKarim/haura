@@ -782,7 +782,7 @@ impl<N: ObjectReference + StaticSize + HasStoragePreference> Node<N> {
         self.ensure_unpacked();
 
         let min_size = storage_map.min_size(self);
-        let max_size = storage_map.min_size(self);
+        let max_size = storage_map.max_size(self);
         match self.0 {
             MemLeaf(ref mut nvmleaf) => {
                 let ((node, pivot_key, pk), size_delta) =
@@ -836,7 +836,7 @@ impl<N: ObjectReference + StaticSize + HasStoragePreference> Node<N> {
         right_sibling.ensure_unpacked();
 
         let min_size = storage_map.min_size(self);
-        let max_size = storage_map.min_size(self);
+        let max_size = storage_map.max_size(self);
         match (&mut self.0, &mut right_sibling.0) {
             (&mut MemLeaf(ref mut left), &mut MemLeaf(ref mut right)) => {
                 left.rebalance_size(right, min_size.unwrap(), max_size.unwrap())
