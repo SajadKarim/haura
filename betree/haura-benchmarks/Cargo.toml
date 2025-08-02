@@ -4,6 +4,15 @@ version = "0.1.0"
 authors = ["tilpner <betree@tilpner.com>"]
 edition = "2018"
 
+[features]
+memory_metrics = ["betree_storage_stack/memory_metrics"]
+
+[[bin]]
+name = "test_memory_metrics"
+path = "src/test_memory_metrics.rs"
+
+
+
 [workspace]
 members = ["."]
 
