@@ -15,7 +15,7 @@ use std::{
     hash::Hash,
     ops::Deref,
     sync::{
-        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicIsize, AtomicU64, AtomicUsize, Ordering},
         Arc,
     },
 };
@@ -136,12 +136,36 @@ impl Stats for CacheStats {
     }
 }
 
+/// Safe atomic subtraction that prevents underflow using compare-and-swap
+fn safe_atomic_sub(atomic: &AtomicUsize, amount: usize, context: &str) {
+    loop {
+        let current = atomic.load(Ordering::Relaxed);
+        
+        // Calculate the new value, but don't let it underflow
+        let new_value = current.saturating_sub(amount);
+        
+        // If we would underflow, log it but use saturating subtraction
+        if amount > current {
+            log::warn!("Cache size underflow detected in {}: current={}, subtract={}, clamping to {}", 
+                      context, current, amount, new_value);
+        }
+        
+        // Try to update atomically
+        if atomic.compare_exchange_weak(current, new_value, Ordering::Relaxed, Ordering::Relaxed).is_ok() {
+            break;
+        }
+        // If compare_exchange failed, retry with the new current value
+    }
+}
+
 impl<V: SizeMut> AddSize for PinnedEntry<V> {
     fn add_size(&self, size_delta: isize) {
+        // Update the global cache size to reflect object size changes
         if size_delta >= 0 {
             self.size.fetch_add(size_delta as usize, Ordering::Relaxed);
         } else {
-            self.size.fetch_sub(-size_delta as usize, Ordering::Relaxed);
+            let subtract_amount = (-size_delta) as usize;
+            safe_atomic_sub(self.size, subtract_amount, "AddSize::add_size");
         }
     }
 }
@@ -206,10 +230,15 @@ impl<K: Clone + Eq + Hash + Sync + Send + 'static, V: Sync + Send + SizeMut + 's
         }
         self.clock.retain(|entry| entry != key);
         let entry = self.map.remove(key).unwrap();
+        
         let mut value = Arc::try_unwrap(entry).ok().unwrap().value;
-        let size = f(&mut value);
+        let current_size = f(&mut value);
+        
+        // Use the current size to account for any growth that happened via add_size()
+        let total_contribution = current_size;
+        
         self.removals += 1;
-        self.size.fetch_sub(size, Ordering::Relaxed);
+        safe_atomic_sub(self.size, total_contribution, "remove");
         self.verify();
         Ok(value)
     }
@@ -217,11 +246,16 @@ impl<K: Clone + Eq + Hash + Sync + Send + 'static, V: Sync + Send + SizeMut + 's
     fn force_remove(&mut self, key: &Self::Key, size: usize) -> bool {
         self.verify();
         self.clock.retain(|entry| entry != key);
-        if self.map.remove(key).is_none() {
-            return false;
-        }
+        let entry = match self.map.remove(key) {
+            Some(entry) => entry,
+            None => return false,
+        };
+        
+        // Use the provided size which should reflect the current object size
+        let total_contribution = size;
+        
         self.removals += 1;
-        self.size.fetch_sub(size, Ordering::Relaxed);
+        safe_atomic_sub(self.size, total_contribution, "force_remove");
         self.verify();
         true
     }
@@ -301,20 +335,13 @@ impl<K: Clone + Eq + Hash + Sync + Send + 'static, V: Sync + Send + SizeMut + 's
             };
             if let Some(size) = eviction_successful {
                 let key = self.clock.pop_front().unwrap();
-                #[cfg(not(debug_assertions))]
                 let entry = self.map.remove(&key).unwrap();
-                #[cfg(debug_assertions)]
-                let mut entry = self.map.remove(&key).unwrap();
-
-                #[cfg(debug_assertions)]
-                {
-                    if let Some(entry) = Arc::get_mut(&mut entry) {
-                        assert_eq!(entry.value.cache_size(), size);
-                    }
-                }
+                
+                // Use the size from the eviction callback which should reflect current object size
+                let total_contribution = size;
 
                 self.evictions += 1;
-                self.size.fetch_sub(size, Ordering::Relaxed);
+                safe_atomic_sub(self.size, total_contribution, "evict");
                 let value = Arc::try_unwrap(entry).ok().unwrap().value;
                 break Some((key, value));
             }

@@ -17,6 +17,10 @@ pub struct Statistics {
     pub read: Block<u64>,
     /// The total number of blocks of issued write requests
     pub written: Block<u64>,
+    /// The total number of read operations (count, not blocks)
+    pub read_count: u64,
+    /// The total number of write operations (count, not blocks)
+    pub write_count: u64,
     /// The total number of blocks of failed read requests due to read failures
     pub failed_reads: Block<u64>,
     /// The total number of blocks of failed read requests due to checksum
@@ -25,11 +29,15 @@ pub struct Statistics {
     /// The total number of blocks of failed write requests
     pub failed_writes: Block<u64>,
     #[cfg(feature = "memory_metrics")]
-    /// The total number of bytes of decompressed data accessed from memory
-    pub memory_access: u64,
+    /// The total number of bytes of decompressed data read from memory
+    pub memory_read: u64,
     #[cfg(feature = "memory_metrics")]
-    /// The total number of times memory was accessed for decompressed data
-    pub memory_access_count: u64,
+    /// The total number of times memory was read for decompressed data
+    pub memory_read_count: u64,
+    /// The total number of bytes saved through compression
+    pub compression_bytes_saved: u64,
+    /// The total number of original bytes before compression
+    pub compression_original_bytes: u64,
     #[cfg(feature = "latency_metrics")]
     /// The average latency over all read operations
     pub read_latency: u64,
@@ -39,14 +47,18 @@ pub struct Statistics {
 pub(crate) struct AtomicStatistics {
     pub(crate) read: AtomicU64,
     pub(crate) written: AtomicU64,
+    pub(crate) read_count: AtomicU64,
+    pub(crate) write_count: AtomicU64,
     pub(crate) failed_reads: AtomicU64,
     pub(crate) checksum_errors: AtomicU64,
     pub(crate) repaired: AtomicU64,
     pub(crate) failed_writes: AtomicU64,
     #[cfg(feature = "memory_metrics")]
-    pub(crate) memory_access: AtomicU64,
+    pub(crate) memory_read: AtomicU64,
     #[cfg(feature = "memory_metrics")]
-    pub(crate) memory_access_count: AtomicU64,
+    pub(crate) memory_read_count: AtomicU64,
+    pub(crate) compression_bytes_saved: AtomicU64,
+    pub(crate) compression_original_bytes: AtomicU64,
     #[cfg(feature = "latency_metrics")]
     pub(crate) prev_read: AtomicU64,
     #[cfg(feature = "latency_metrics")]
@@ -63,13 +75,17 @@ impl AtomicStatistics {
         Statistics {
             read: Block(self.read.load(Ordering::Relaxed)),
             written: Block(self.written.load(Ordering::Relaxed)),
+            read_count: self.read_count.load(Ordering::Relaxed),
+            write_count: self.write_count.load(Ordering::Relaxed),
             failed_reads: Block(self.failed_reads.load(Ordering::Relaxed)),
             checksum_errors: Block(self.checksum_errors.load(Ordering::Relaxed)),
             failed_writes: Block(self.failed_writes.load(Ordering::Relaxed)),
             #[cfg(feature = "memory_metrics")]
-            memory_access: self.memory_access.load(Ordering::Relaxed),
+            memory_read: self.memory_read.load(Ordering::Relaxed),
             #[cfg(feature = "memory_metrics")]
-            memory_access_count: self.memory_access_count.load(Ordering::Relaxed),
+            memory_read_count: self.memory_read_count.load(Ordering::Relaxed),
+            compression_bytes_saved: self.compression_bytes_saved.load(Ordering::Relaxed),
+            compression_original_bytes: self.compression_original_bytes.load(Ordering::Relaxed),
             #[cfg(feature = "latency_metrics")]
             read_latency: self
                 .read_op_latency

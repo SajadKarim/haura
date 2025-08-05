@@ -155,6 +155,7 @@ impl VdevLeafRead for FailingLeafVdev {
     ) -> Result<T, Error> {
         let size = Block::from_bytes(buf.as_mut().len() as u32);
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
+        self.stats.read_count.fetch_add(1, Ordering::Relaxed);
 
         let offset = offset.to_bytes() as usize;
         let byte_size = size.to_bytes() as usize;

@@ -472,12 +472,13 @@ where
             let integrity_mode = {
                 let storage_kind = self.spl().storage_kind_map()[storage_class as usize];
                 let pp = crate::data_management::PreparePack { storage_kind };
+                let vdev_stats = self.pool.get_vdev_stats_for_class(storage_class);
                 object.prepare_pack(storage_kind, &pivot_key)?;
                 let part = object.pack(&mut buf, pp, |bytes| {
                     let mut builder = self.default_checksum_builder.build();
                     builder.ingest(bytes);
                     builder.finish()
-                }, &self.default_compression)?;
+                }, &self.default_compression, vdev_stats)?;
                 drop(object);
                 part
             };
@@ -1145,14 +1146,13 @@ where
             //     .new_decompression()?
             //     .decompress(compressed_data)?;
 
-            #[cfg(feature = "memory_metrics")]
             {
+                #[cfg(feature = "memory_metrics")]
                 let vdev_stats = self.pool.get_vdev_stats(ptr.offset());
+                #[cfg(not(feature = "memory_metrics"))]
+                let vdev_stats = None;
+                
                 Object::unpack_at(ptr.info(), data, ptr.integrity_mode.clone(), ptr.decompression_tag(), vdev_stats)?
-            }
-            #[cfg(not(feature = "memory_metrics"))]
-            {
-                Object::unpack_at(ptr.info(), data, ptr.integrity_mode.clone(), ptr.decompression_tag())?
             }
         };
         let key = ObjectKey::Unmodified {

@@ -110,24 +110,16 @@ impl<D> ObjectPointer<D> {
 
         //let data = decompression_state.decompress(compressed_data)?;
         #[cfg(feature = "memory_metrics")]
-        {
-            let vdev_stats = pool.get_vdev_stats(self.offset());
-            Ok(super::Object::unpack_at(
-                self.info(),
-                data,
-                self.integrity_mode.clone(),
-                self.decompression_tag(),
-                vdev_stats,
-            )?)
-        }
+        let vdev_stats = pool.get_vdev_stats(self.offset());
         #[cfg(not(feature = "memory_metrics"))]
-        {
-            Ok(super::Object::unpack_at(
-                self.info(),
-                data,
-                self.integrity_mode.clone(),
-                self.decompression_tag(),
-            )?)
-        }
+        let vdev_stats = None;
+        
+        Ok(super::Object::unpack_at(
+            self.info(),
+            data,
+            self.integrity_mode.clone(),
+            self.decompression_tag(),
+            vdev_stats,
+        )?)
     }
 }

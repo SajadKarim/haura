@@ -176,12 +176,13 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
         mut writer: W,
         prepare_pack: PreparePack,
         csum_builder: F, 
-        compressor: &CompressionConfiguration
+        compressor: &CompressionConfiguration,
+        vdev_stats: Option<std::sync::Arc<crate::vdev::AtomicStatistics>>,
     ) -> Result<IntegrityMode<C>, io::Error> {
         match self.0 {
             MemLeaf(ref leaf) => {
                 writer.write_all((NodeInnerType::CopylessLeaf as u32).to_be_bytes().as_ref())?;
-                leaf.pack(writer, prepare_pack, csum_builder, compressor)
+                leaf.pack(writer, prepare_pack, csum_builder, compressor, vdev_stats)
             }
             CopylessInternal(ref cpl_internal) => {
                 writer.write_all(
@@ -189,12 +190,11 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
                         .to_be_bytes()
                         .as_ref(),
                 )?;
-                cpl_internal.pack(writer, prepare_pack, csum_builder, compressor)
+                cpl_internal.pack(writer, prepare_pack, csum_builder, compressor, vdev_stats)
             }
         }
     }
 
-    #[cfg(feature = "memory_metrics")]
     fn unpack_at<C: Checksum>(
         d_id: DatasetId,
         data: Buf,
@@ -214,33 +214,6 @@ impl<R: ObjectReference + HasStoragePreference + StaticSize> Object<R> for Node<
                 integrity_mode,
                 decompressor,
                 vdev_stats,
-            )?)))
-        } else {
-            panic!(
-                "Unkown bytes to unpack. [0..4]: {}",
-                u32::from_be_bytes(data[..4].try_into().unwrap())
-            );
-        }
-    }
-
-    #[cfg(not(feature = "memory_metrics"))]
-    fn unpack_at<C: Checksum>(
-        d_id: DatasetId,
-        data: Buf,
-        integrity_mode: IntegrityMode<C>,
-        decompressor: DecompressionTag
-    ) -> Result<Self, io::Error> {
-        if data[0..4] == (NodeInnerType::CopylessInternal as u32).to_be_bytes() {
-            //println!("a..");
-            Ok(Node(CopylessInternal(
-                CopylessInternalNode::unpack(data, integrity_mode, decompressor)?
-                    .complete_object_refs(d_id),
-            )))
-        } else if data[0..4] == (NodeInnerType::CopylessLeaf as u32).to_be_bytes() {
-            Ok(Node(MemLeaf(PackedChildBuffer::unpack(
-                data.into_sliced_cow_bytes().slice_from(4),
-                integrity_mode,
-                decompressor,
             )?)))
         } else {
             panic!(
@@ -407,13 +380,20 @@ impl<N: HasStoragePreference + StaticSize> Node<N> {
 
         match &mut self.0 {
             MemLeaf(mleaf) => {
-                let before = mleaf.cache_size();
                 mleaf.unpack_data();
-                let after = mleaf.cache_size();
-                after as isize - before as isize
             }
-            _ => 0,
+            _ => {},
         }
+        
+        let after = self.cache_size();
+        let delta = after as isize - before as isize;
+        
+        if delta < -1000000 {  // Large negative delta
+            eprintln!("WARNING: Large negative size delta in ensure_unpacked! Before: {}, After: {}, Delta: {}", 
+                     before, after, delta);
+        }
+        
+        delta
     }
 
     fn take(&mut self) -> Self {

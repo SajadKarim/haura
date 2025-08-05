@@ -288,13 +288,37 @@ impl<C: Checksum> StoragePoolLayer for StoragePoolUnit<C> {
         self.inner.default_storage_class
     }
 
-    #[cfg(feature = "memory_metrics")]
     fn get_vdev_stats(&self, offset: DiskOffset) -> Option<std::sync::Arc<crate::vdev::AtomicStatistics>> {
         let storage_class = offset.storage_class() as usize;
         let disk_id = offset.disk_id() as usize;
         
         if storage_class < self.inner.tiers.len() && disk_id < self.inner.tiers[storage_class].len() {
-            self.inner.tiers[storage_class][disk_id].atomic_stats()
+            #[cfg(feature = "memory_metrics")]
+            {
+                self.inner.tiers[storage_class][disk_id].atomic_stats()
+            }
+            #[cfg(not(feature = "memory_metrics"))]
+            {
+                None
+            }
+        } else {
+            None
+        }
+    }
+    
+    fn get_vdev_stats_for_class(&self, storage_class: u8) -> Option<std::sync::Arc<crate::vdev::AtomicStatistics>> {
+        let storage_class = storage_class as usize;
+        
+        if storage_class < self.inner.tiers.len() && !self.inner.tiers[storage_class].devs.is_empty() {
+            // Use the first disk in the tier
+            #[cfg(feature = "memory_metrics")]
+            {
+                self.inner.tiers[storage_class][0].atomic_stats()
+            }
+            #[cfg(not(feature = "memory_metrics"))]
+            {
+                None
+            }
         } else {
             None
         }

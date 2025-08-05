@@ -45,6 +45,7 @@ impl<V: VdevLeafWrite> Mirror<V> {
     {
         let ReadResult { data, failed_disks } = r;
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
+        self.stats.read_count.fetch_add(1, Ordering::Relaxed);
 
         let data = match data {
             Some(data) => data,

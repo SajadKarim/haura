@@ -166,24 +166,16 @@ pub trait Object<R>: Size + Sized + HasStoragePreference {
         writer: W,
         pp: PreparePack,
         csum_builder: F,
-        compressor: &CompressionConfiguration
+        compressor: &CompressionConfiguration,
+        vdev_stats: Option<std::sync::Arc<crate::vdev::AtomicStatistics>>,
     ) -> Result<IntegrityMode<C>, io::Error>;
     /// Unpacks the object from the given `data`.
-    #[cfg(feature = "memory_metrics")]
     fn unpack_at<C: Checksum>(
         d_id: DatasetId,
         data: Buf,
         integrity_mode: IntegrityMode<C>,
         decompressor: DecompressionTag,
         vdev_stats: Option<std::sync::Arc<crate::vdev::AtomicStatistics>>,
-    ) -> Result<Self, io::Error>;
-
-    #[cfg(not(feature = "memory_metrics"))]
-    fn unpack_at<C: Checksum>(
-        d_id: DatasetId,
-        data: Buf,
-        integrity_mode: IntegrityMode<C>,
-        decompressor: DecompressionTag,
     ) -> Result<Self, io::Error>;
 
     /// Returns debug information about an object.

@@ -153,6 +153,7 @@ impl<V: VdevLeafRead + VdevLeafWrite> Parity1<V> {
         let disk_cnt = self.vdevs.len();
 
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
+        self.stats.read_count.fetch_add(1, Ordering::Relaxed);
 
         let long_col_len = self.long_col_len(size);
         let long_col_cnt = self.long_col_cnt(size);

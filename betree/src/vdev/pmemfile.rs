@@ -52,6 +52,7 @@ impl VdevRead for PMemFile {
         checksum: C,
     ) -> Result<Buf> {
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
+        self.stats.read_count.fetch_add(1, Ordering::Relaxed);
         let buf = unsafe {
             let slice = self
                 .file
@@ -99,6 +100,7 @@ impl VdevRead for PMemFile {
 
     async fn read_raw(&self, size: Block<u32>, offset: Block<u64>) -> Result<Vec<Buf>> {
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
+        self.stats.read_count.fetch_add(1, Ordering::Relaxed);
         // let mut buf = Buf::zeroed(size).into_full_mut();
 
         let buf = unsafe {
@@ -158,6 +160,7 @@ impl VdevLeafRead for PMemFile {
     async fn read_raw<T: AsMut<[u8]> + Send>(&self, mut buf: T, offset: Block<u64>) -> Result<T> {
         let size = Block::from_bytes(buf.as_mut().len() as u32);
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
+        self.stats.read_count.fetch_add(1, Ordering::Relaxed);
 
         self.file.read(offset.to_bytes() as usize, buf.as_mut());
         Ok(buf)
@@ -180,6 +183,7 @@ impl VdevLeafWrite for PMemFile {
     ) -> Result<()> {
         let block_cnt = Block::from_bytes(data.as_ref().len() as u64).as_u64();
         self.stats.written.fetch_add(block_cnt, Ordering::Relaxed);
+        self.stats.write_count.fetch_add(1, Ordering::Relaxed);
 
         unsafe { self.file.write(offset.to_bytes() as usize, data.as_ref()) };
         Ok(())

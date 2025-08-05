@@ -52,6 +52,7 @@ impl Memory {
 
     fn slice_read(&self, size: Block<u32>, offset: Block<u64>) -> Result<Buf> {
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
+        self.stats.read_count.fetch_add(1, Ordering::Relaxed);
         #[cfg(feature = "latency_metrics")]
         let start = std::time::Instant::now();
 
@@ -174,6 +175,7 @@ impl VdevLeafRead for Memory {
     async fn read_raw<T: AsMut<[u8]> + Send>(&self, mut buf: T, offset: Block<u64>) -> Result<T> {
         let size = Block::from_bytes(buf.as_mut().len() as u32);
         self.stats.read.fetch_add(size.as_u64(), Ordering::Relaxed);
+        self.stats.read_count.fetch_add(1, Ordering::Relaxed);
         let buf_mut = buf.as_mut();
         #[cfg(feature = "latency_metrics")]
         let start = std::time::Instant::now();
@@ -226,6 +228,7 @@ impl VdevLeafWrite for Memory {
     ) -> Result<()> {
         let block_cnt = Block::from_bytes(data.as_ref().len() as u64).as_u64();
         self.stats.written.fetch_add(block_cnt, Ordering::Relaxed);
+        self.stats.write_count.fetch_add(1, Ordering::Relaxed);
         match self
             .slice_mut(data.as_ref().len(), offset.to_bytes() as usize)
             .map(|mut dst| dst.copy_from_slice(data.as_ref()))

@@ -340,6 +340,7 @@ impl<N> CopylessInternalNode<N> {
         prepare_pack: crate::data_management::PreparePack,
         csum_builder: F,
 	compressor: &CompressionConfiguration,
+        vdev_stats: Option<std::sync::Arc<crate::vdev::AtomicStatistics>>,
     ) -> Result<IntegrityMode<C>, std::io::Error>
     where
         N: serde::Serialize + StaticSize,
@@ -369,7 +370,7 @@ impl<N> CopylessInternalNode<N> {
         // because the buffer size changes during packing with compression
 
         for child in self.children.iter() {
-            let integrity = child.buffer.pack(&mut tmp_buffers, prepare_pack, &csum_builder, compressor)?;
+            let integrity = child.buffer.pack(&mut tmp_buffers, prepare_pack, &csum_builder, compressor, vdev_stats.clone())?;
             assert_eq!(
                 bincode::serialized_size(&integrity).unwrap(),
                 INTERNAL_INTEGRITY_CHECKSUM_SIZE as u64
@@ -400,16 +401,6 @@ impl<N> CopylessInternalNode<N> {
     }
 
     /// Read object from a byte buffer and instantiate it.
-    #[cfg(not(feature = "memory_metrics"))]
-    pub fn unpack<C: Checksum>(buf: Buf, csum: IntegrityMode<C>, decompressor: DecompressionTag) -> Result<Self, std::io::Error>
-    where
-        N: serde::de::DeserializeOwned + StaticSize,
-    {
-        Self::unpack_impl(buf, csum, decompressor, None)
-    }
-
-    /// Read object from a byte buffer and instantiate it with memory metrics support.
-    #[cfg(feature = "memory_metrics")]
     pub fn unpack<C: Checksum>(buf: Buf, csum: IntegrityMode<C>, decompressor: DecompressionTag, vdev_stats: Option<std::sync::Arc<crate::vdev::AtomicStatistics>>) -> Result<Self, std::io::Error>
     where
         N: serde::de::DeserializeOwned + StaticSize,
@@ -485,16 +476,7 @@ impl<N> CopylessInternalNode<N> {
                 buf.clone().slice_from(cursor as u32)
             };
             
-            let b: PackedChildBuffer = {
-                #[cfg(feature = "memory_metrics")]
-                {
-                    PackedChildBuffer::unpack(sub, buffer_csum, decompressor, vdev_stats.clone())?
-                }
-                #[cfg(not(feature = "memory_metrics"))]
-                {
-                    PackedChildBuffer::unpack(sub, buffer_csum, decompressor)?
-                }
-            };
+            let b: PackedChildBuffer = PackedChildBuffer::unpack(sub, buffer_csum, decompressor, vdev_stats.clone())?;
             let buffer_size = b.size();
             cursor += buffer_size;
             
@@ -1139,7 +1121,8 @@ pub(super) mod tests {
 
     fn serialized_size<T: ObjectReference>(node: &CopylessInternalNode<T>) -> usize {
         let mut buf = Vec::new();
-        node.pack(&mut buf, quick_csum, &crate::compression::CompressionConfiguration::None).unwrap();
+        let pp = crate::data_management::PreparePack { storage_kind: crate::tree::StorageKind::Memory };
+        node.pack(&mut buf, pp, quick_csum, &crate::compression::CompressionConfiguration::None, None).unwrap();
         buf.len()
     }
 
@@ -1244,9 +1227,10 @@ pub(super) mod tests {
         println!("Start Prefix");
         buf.write_all(&[0; 4]).unwrap();
         println!("Start packing");
-        let csum = node.pack(&mut buf, quick_csum, &crate::compression::CompressionConfiguration::None).unwrap();
+        let pp = crate::data_management::PreparePack { storage_kind: crate::tree::StorageKind::Memory };
+        let csum = node.pack(&mut buf, pp, quick_csum, &crate::compression::CompressionConfiguration::None, None).unwrap();
         println!("Done packing");
-        let unpacked = CopylessInternalNode::<()>::unpack(buf.into_buf(), csum, crate::compression::DecompressionTag::None).unwrap();
+        let unpacked = CopylessInternalNode::<()>::unpack(buf.into_buf(), csum, crate::compression::DecompressionTag::None, None).unwrap();
         println!("Done unpacking");
         assert_eq!(unpacked.meta_data, node.meta_data);
         println!("Checked meta data");

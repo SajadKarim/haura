@@ -121,8 +121,7 @@ pub(in crate::tree::imp) struct PackedChildBuffer {
 
     pub(in crate::tree::imp) is_leaf: bool,
     
-    #[cfg(feature = "memory_metrics")]
-    /// Optional reference to vdev statistics for tracking direct memory access
+    /// Optional reference to vdev statistics for tracking memory access and compression metrics
     pub(in crate::tree::imp) vdev_stats: Option<std::sync::Arc<crate::vdev::AtomicStatistics>>,
 }
 
@@ -171,7 +170,6 @@ impl KeyIdx {
 
 impl Map {
     /// Fetch a mutable version of the internal btree map.
-    #[cfg(feature = "memory_metrics")]
     pub(in crate::tree::imp) fn unpacked(
         &mut self,
         vdev_stats: Option<&std::sync::Arc<crate::vdev::AtomicStatistics>>,
@@ -179,15 +177,7 @@ impl Map {
         self.unpacked_impl(vdev_stats)
     }
 
-    #[cfg(not(feature = "memory_metrics"))]
-    pub(in crate::tree::imp) fn unpacked(
-        &mut self,
-    ) -> WithCacheSizeChange<&mut BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)>> {
-        self.unpacked_impl()
-    }
-
     /// Internal implementation of unpacked method
-    #[cfg(feature = "memory_metrics")]
     fn unpacked_impl(
         &mut self,
         vdev_stats: Option<&std::sync::Arc<crate::vdev::AtomicStatistics>>,
@@ -200,7 +190,7 @@ impl Map {
                 let mut key_info = Vec::with_capacity(*entry_count);
                 let mut values_pos: Vec<(u32, u32, Checksum)> = Vec::with_capacity(*entry_count);
 
-                // current in-cache size
+                // Track size delta for cache size change
                 let mut size_delta: isize = -2 * std::mem::size_of::<usize>() as isize;
 
                 match decompression_tag {
@@ -211,11 +201,12 @@ impl Map {
                             let off = HEADER + idx * KEY_IDX_SIZE;
                             let kidx = KeyIdx::unpack(data.cut(off, 9).try_into().unwrap());
                             
-                            // Track memory access for key data
+                            // Track memory read for key data
+                            
                             #[cfg(feature = "memory_metrics")]
                             if let Some(stats) = vdev_stats {
-                                stats.memory_access.fetch_add(kidx.len as u64, std::sync::atomic::Ordering::Relaxed);
-                                stats.memory_access_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                stats.memory_read.fetch_add(kidx.len as u64, std::sync::atomic::Ordering::Relaxed);
+                                stats.memory_read_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             }
                             
                             key_info.push(KeyInfo {
@@ -237,11 +228,12 @@ impl Map {
                             .unwrap();
                             values_pos.push((val_pos, val_len, val_csum));
                             
-                            // Track memory access for value data
+                            // Track memory read for value data
+                            
                             #[cfg(feature = "memory_metrics")]
                             if let Some(stats) = vdev_stats {
-                                stats.memory_access.fetch_add(val_len as u64, std::sync::atomic::Ordering::Relaxed);
-                                stats.memory_access_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                stats.memory_read.fetch_add(val_len as u64, std::sync::atomic::Ordering::Relaxed);
+                                stats.memory_read_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             }
                             
                             size_delta += val_len as isize;
@@ -254,11 +246,12 @@ impl Map {
                             let off = HEADER + idx * KEY_IDX_SIZE;
                             let kidx = KeyIdx::unpack(data.cut(off, 9).try_into().unwrap());
                             
-                            // Track memory access for key data
+                            // Track memory read for key data
+                            
                             #[cfg(feature = "memory_metrics")]
                             if let Some(stats) = vdev_stats {
-                                stats.memory_access.fetch_add(kidx.len as u64, std::sync::atomic::Ordering::Relaxed);
-                                stats.memory_access_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                stats.memory_read.fetch_add(kidx.len as u64, std::sync::atomic::Ordering::Relaxed);
+                                stats.memory_read_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             }
                             
                             key_info.push(KeyInfo {
@@ -280,11 +273,12 @@ impl Map {
                             .unwrap();
                             values_pos.push((val_pos, val_len, val_csum));
                             
-                            // Track memory access for value data
+                            // Track memory read for value data
+                            
                             #[cfg(feature = "memory_metrics")]
                             if let Some(stats) = vdev_stats {
-                                stats.memory_access.fetch_add(val_len as u64, std::sync::atomic::Ordering::Relaxed);
-                                stats.memory_access_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                stats.memory_read.fetch_add(val_len as u64, std::sync::atomic::Ordering::Relaxed);
+                                stats.memory_read_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             }
                             
                             size_delta += val_len as isize;
@@ -292,30 +286,37 @@ impl Map {
                     }
                 }
 
+                // For compressed data, calculate the additional size delta from decompression
+                let mut decompression_size_delta = 0isize;
+                let decompressed_values: Vec<_> = values_pos.into_iter().map(|(pos, len, csum)| {
+                    // NOTE: copies data to not be invalidated later on rewrites... could be solved differently
+                    let compressed_buf = CowBytes::from(&data[pos as usize..(pos + len) as usize])
+                        .slice_from(0);
+                    
+                    // Decompress if needed
+                    let buf = match decompression_tag {
+                        DecompressionTag::None => compressed_buf,
+                        _ => {
+                            let mut decompressor_state = decompression_tag.new_decompression()
+                                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{}", e)))
+                                .unwrap();
+                            let decompressed = decompressor_state.decompress_val(&compressed_buf)
+                                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{}", e)))
+                                .unwrap();
+                            // For compressed data, add the difference between decompressed and compressed size
+                            decompression_size_delta += decompressed.len() as isize - len as isize;
+                            decompressed
+                        }
+                    };
+                    
+                    csum.verify(&buf).unwrap();
+                    buf
+                }).collect();
+
+                size_delta += decompression_size_delta;
+
                 *self = Map::Unpacked(BTreeMap::from_iter(keys.into_iter().zip(
-                    key_info.into_iter().zip(values_pos.into_iter().map(
-                        move |(pos, len, csum)| {
-                            // NOTE: copies data to not be invalidated later on rewrites... could be solved differently
-                            let compressed_buf = CowBytes::from(&data[pos as usize..(pos + len) as usize])
-                                .slice_from(0);
-                            
-                            // Decompress if needed
-                            let buf = match decompression_tag {
-                                DecompressionTag::None => compressed_buf,
-                                _ => {
-                                    let mut decompressor_state = decompression_tag.new_decompression()
-                                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{}", e)))
-                                        .unwrap();
-                                    decompressor_state.decompress_val(&compressed_buf)
-                                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{}", e)))
-                                        .unwrap()
-                                }
-                            };
-                            
-                            csum.verify(&buf).unwrap();
-                            buf
-                        },
-                    )),
+                    key_info.into_iter().zip(decompressed_values.into_iter())
                 )));
 
                 WithCacheSizeChange::new(
@@ -330,116 +331,6 @@ impl Map {
         }
     }
 
-    /// Internal implementation of unpacked method (non-memory_metrics version)
-    #[cfg(not(feature = "memory_metrics"))]
-    fn unpacked_impl(
-        &mut self,
-    ) -> WithCacheSizeChange<&mut BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)>> {
-        match self {
-            Map::Packed { entry_count, data, decompression_tag } => {
-                // NOTE: copy data before to avoid sync epoch shenanigans
-                // necesary as we might rewrite the original memory region once here
-                let mut keys: Vec<CowBytes> = Vec::with_capacity(*entry_count);
-                let mut key_info = Vec::with_capacity(*entry_count);
-                let mut values_pos: Vec<(u32, u32, Checksum)> = Vec::with_capacity(*entry_count);
-
-                // current in-cache size
-                let mut size_delta: isize = -2 * std::mem::size_of::<usize>() as isize;
-
-                match decompression_tag {
-                    DecompressionTag::None => {
-                        // Uncompressed format
-                        for idx in 0..*entry_count {
-                            size_delta += KeyInfo::static_size() as isize;
-                            let off = HEADER + idx * KEY_IDX_SIZE;
-                            let kidx = KeyIdx::unpack(data.cut(off, 9).try_into().unwrap());
-                            key_info.push(KeyInfo {
-                                storage_preference: StoragePreference::from_u8(kidx.pref),
-                            });
-                            keys.push(CowBytes::from(
-                                data.cut(kidx.pos as usize, kidx.len as usize),
-                            ));
-                            size_delta += kidx.len as isize;
-
-                            let val_pos_off = kidx.pos as usize + kidx.len as usize;
-                            let val_pos = u32::from_le_bytes(data.cut(val_pos_off, 4).try_into().unwrap());
-                            let val_len =
-                                u32::from_le_bytes(data.cut(val_pos_off + 4, 4).try_into().unwrap());
-                            let val_csum: crate::database::Checksum = bincode::deserialize(data.cut(
-                                val_pos_off + 4 + 4,
-                                crate::database::Checksum::static_size(),
-                            ))
-                            .unwrap();
-                            values_pos.push((val_pos, val_len, val_csum));
-                            size_delta += val_len as isize;
-                        }
-                    }
-                    _ => {
-                        // Compressed format - same structure as uncompressed, but values are compressed
-                        for idx in 0..*entry_count {
-                            size_delta += KeyInfo::static_size() as isize;
-                            let off = HEADER + idx * KEY_IDX_SIZE;
-                            let kidx = KeyIdx::unpack(data.cut(off, 9).try_into().unwrap());
-                            key_info.push(KeyInfo {
-                                storage_preference: StoragePreference::from_u8(kidx.pref),
-                            });
-                            keys.push(CowBytes::from(
-                                data.cut(kidx.pos as usize, kidx.len as usize),
-                            ));
-                            size_delta += kidx.len as isize;
-
-                            let val_pos_off = kidx.pos as usize + kidx.len as usize;
-                            let val_pos = u32::from_le_bytes(data.cut(val_pos_off, 4).try_into().unwrap());
-                            let val_len =
-                                u32::from_le_bytes(data.cut(val_pos_off + 4, 4).try_into().unwrap());
-                            let val_csum: crate::database::Checksum = bincode::deserialize(data.cut(
-                                val_pos_off + 4 + 4,
-                                crate::database::Checksum::static_size(),
-                            ))
-                            .unwrap();
-                            values_pos.push((val_pos, val_len, val_csum));
-                            size_delta += val_len as isize;
-                        }
-                    }
-                }
-
-                *self = Map::Unpacked(BTreeMap::from_iter(keys.into_iter().zip(
-                    key_info.into_iter().zip(values_pos.into_iter().map(
-                        move |(pos, len, csum)| {
-                            // NOTE: copies data to not be invalidated later on rewrites... could be solved differently
-                            let compressed_buf = CowBytes::from(&data[pos as usize..(pos + len) as usize])
-                                .slice_from(0);
-                            
-                            // Decompress if needed
-                            let buf = match decompression_tag {
-                                DecompressionTag::None => compressed_buf,
-                                _ => {
-                                    let mut decompressor_state = decompression_tag.new_decompression()
-                                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{}", e)))
-                                        .unwrap();
-                                    decompressor_state.decompress_val(&compressed_buf)
-                                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{}", e)))
-                                        .unwrap()
-                                }
-                            };
-                            
-                            csum.verify(&buf).unwrap();
-                            buf
-                        },
-                    )),
-                )));
-
-                WithCacheSizeChange::new(
-                    match self {
-                        Map::Unpacked(ref mut map) => map,
-                        _ => unreachable!(),
-                    },
-                    size_delta,
-                )
-            }
-            Map::Unpacked(ref mut map) => WithCacheSizeChange::new(map, 0),
-        }
-    }
 
     /// Assert an unpacked instance.
     fn assert_unpacked(&self) -> &BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)> {
@@ -503,16 +394,16 @@ impl Map {
         }
     }
 
-    #[cfg(feature = "memory_metrics")]
+    
     pub fn get(&self, key: &[u8], vdev_stats: Option<&std::sync::Arc<crate::vdev::AtomicStatistics>>) -> Option<(KeyInfo, SlicedCowBytes)> {
         match self {
             Map::Packed { data, decompression_tag, .. } => self.find(key).map(|(pref, pos, len, csum)| {
-                // Track memory access for metrics
+                // Track memory read for metrics
                 #[cfg(feature = "memory_metrics")]
                 if let Some(stats) = vdev_stats {
                     let bytes_read = len as u64;
-                    stats.memory_access.fetch_add(bytes_read, std::sync::atomic::Ordering::Relaxed);
-                    stats.memory_access_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    stats.memory_read.fetch_add(bytes_read, std::sync::atomic::Ordering::Relaxed);
+                    stats.memory_read_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
                 
                 let compressed_buf = unsafe { SlicedCowBytes::from_raw(data.as_ptr().add(pos), len) };
@@ -562,44 +453,7 @@ impl Map {
         }
     }
 
-    #[cfg(not(feature = "memory_metrics"))]
-    pub fn get(&self, key: &[u8]) -> Option<(KeyInfo, SlicedCowBytes)> {
-        match self {
-            Map::Packed { data, decompression_tag, .. } => self.find(key).map(|(pref, pos, len, csum)| {
-                let compressed_buf = unsafe { SlicedCowBytes::from_raw(data.as_ptr().add(pos), len) };
-                
-                // Decompress if needed
-                let buf = match decompression_tag {
-                    DecompressionTag::None => {
-                        // TODO: Pass on result
-                        csum.verify(&compressed_buf).unwrap();
-                        compressed_buf.slice_from(0)
-                    },
-                    _ => {
-                        let mut decompressor_state = decompression_tag.new_decompression()
-                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{}", e)))
-                            .unwrap();
-                        let decompressed_buf = decompressor_state.decompress_val(&compressed_buf)
-                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{}", e)))
-                            .unwrap();
-                        // TODO: Pass on result
-                        csum.verify(&decompressed_buf).unwrap();
-                        decompressed_buf
-                    }
-                };
-                
-                (
-                    KeyInfo {
-                        storage_preference: StoragePreference::from_u8(pref),
-                    },
-                    buf,
-                )
-            }),
-            // TODO: This should be a cheap copy (a few bytes for the pref and
-            // the ptrs in slicedcowbytes) but please check this again.
-            Map::Unpacked(btree) => btree.get(key).cloned(),
-        }
-    }
+
 
     // Return the preference and location of the value within the boxed value.
     fn find(&self, key: &[u8]) -> Option<(u8, usize, usize, Checksum)> {
@@ -734,14 +588,7 @@ impl PackedChildBuffer {
     }
 
     pub fn get(&self, key: &[u8]) -> Option<(KeyInfo, SlicedCowBytes)> {
-        #[cfg(feature = "memory_metrics")]
-        {
-            self.buffer.get(key, self.vdev_stats.as_ref())
-        }
-        #[cfg(not(feature = "memory_metrics"))]
-        {
-            self.buffer.get(key)
-        }
+        self.buffer.get(key, self.vdev_stats.as_ref())
     }
 
     pub fn apply_with_info(
@@ -770,13 +617,13 @@ impl PackedChildBuffer {
         assert!(self.buffer.len() > 2);
 
         let is_leaf = self.is_leaf;
-        #[cfg(feature = "memory_metrics")]
+        
         let vdev_stats = self.vdev_stats.clone();
 
         let mut sibling_size = 0;
         let result = self.unpacked_with_stats().map_with_size_change(|buffer| {
             let mut right_sibling = Self::new(is_leaf);
-            #[cfg(feature = "memory_metrics")]
+            
             {
                 right_sibling.vdev_stats = vdev_stats.clone();
             }
@@ -986,7 +833,7 @@ impl PackedChildBuffer {
             entries_size: buffer_entries_size,
             system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
             is_leaf: self.is_leaf,
-            #[cfg(feature = "memory_metrics")]
+            
             vdev_stats: self.vdev_stats.clone(),
         }
     }
@@ -1138,26 +985,40 @@ impl PackedChildBuffer {
             entries_size: 0,
             system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
             is_leaf,
-            #[cfg(feature = "memory_metrics")]
             vdev_stats: None,
         }
     }
 
-    #[cfg(feature = "memory_metrics")]
-    /// Set the vdev statistics reference for tracking memory access
+    /// Set the vdev statistics reference for tracking memory access and compression metrics
     pub fn set_vdev_stats(&mut self, stats: Option<std::sync::Arc<crate::vdev::AtomicStatistics>>) {
         self.vdev_stats = stats;
     }
 
     /// Helper method to call unpacked with appropriate parameters
     fn unpacked_with_stats(&mut self) -> WithCacheSizeChange<&mut BTreeMap<CowBytes, (KeyInfo, SlicedCowBytes)>> {
-        #[cfg(feature = "memory_metrics")]
-        {
-            self.buffer.unpacked(self.vdev_stats.as_ref())
-        }
-        #[cfg(not(feature = "memory_metrics"))]
-        {
-            self.buffer.unpacked()
+        let old_cache_size = self.cache_size();
+        let result = self.buffer.unpacked(self.vdev_stats.as_ref());
+        
+        // Only update entries_size if there was actually a size change (i.e., unpacking occurred)
+        if result.size_delta != 0 {
+            // Update entries_size to reflect the actual unpacked size
+            // We need to calculate this from the result since we can't borrow self.buffer again
+            let new_entries_size = result.inner.iter()
+                .map(|(key, (key_info, value))| {
+                    key.size() + key_info.size() + value.size() + Checksum::static_size()
+                })
+                .sum();
+            self.entries_size = new_entries_size;
+            
+            // Calculate the actual cache size change based on the new entries_size
+            // For unpacked buffers: cache_size = HEADER + entries_size
+            let new_cache_size = HEADER + self.entries_size;
+            let actual_delta = new_cache_size as isize - old_cache_size as isize;
+            
+            // Return a corrected WithCacheSizeChange with the actual delta
+            WithCacheSizeChange::new(result.inner, actual_delta)
+        } else {
+            result
         }
     }
 
@@ -1192,6 +1053,7 @@ impl PackedChildBuffer {
         prepare_pack: crate::data_management::PreparePack,
         csum_builder: F,
 	    compressor: &CompressionConfiguration,
+        vdev_stats: Option<std::sync::Arc<crate::vdev::AtomicStatistics>>,
     ) -> Result<IntegrityMode<C>, std::io::Error>
     where
         W: std::io::Write,
@@ -1222,7 +1084,7 @@ impl PackedChildBuffer {
                     }
                     _ => {
                         // Compression enabled - use new compression logic
-                        self.pack_compressed(w, csum_builder, compressor)
+                        self.pack_compressed(w, csum_builder, compressor, vdev_stats)
                     }
                 }
             }
@@ -1350,6 +1212,7 @@ impl PackedChildBuffer {
         mut w: W,
         csum_builder: F,
         compressor: &CompressionConfiguration,
+        vdev_stats: Option<std::sync::Arc<crate::vdev::AtomicStatistics>>,
     ) -> Result<IntegrityMode<C>, std::io::Error>
     where
         W: std::io::Write,
@@ -1377,9 +1240,19 @@ impl PackedChildBuffer {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{}", e)))?;
         
         for (_, (_, val)) in self.buffer.assert_unpacked().iter() {
+            let original_size = val.len();
             let compressed = compressor_state.compress_val(val)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{}", e)))?;
-            compressed_sizes.push(compressed.len());
+            let compressed_size = compressed.len();
+            
+            // Track compression metrics for key/value level compression
+            if let Some(stats) = &vdev_stats {
+                let bytes_saved = original_size.saturating_sub(compressed_size) as u64;
+                stats.compression_bytes_saved.fetch_add(bytes_saved, std::sync::atomic::Ordering::Relaxed);
+                stats.compression_original_bytes.fetch_add(original_size as u64, std::sync::atomic::Ordering::Relaxed);
+            }
+            
+            compressed_sizes.push(compressed_size);
             compressed_vals.extend_from_slice(&compressed);
         }
 
@@ -1433,7 +1306,6 @@ impl PackedChildBuffer {
         })
     }
 
-    #[cfg(feature = "memory_metrics")]
     pub fn unpack<C>(buf: SlicedCowBytes, csum: IntegrityMode<C>, decompressor: DecompressionTag, vdev_stats: Option<std::sync::Arc<crate::vdev::AtomicStatistics>>) -> Result<Self, std::io::Error>
     where
         C: ChecksumTrait,
@@ -1444,17 +1316,6 @@ impl PackedChildBuffer {
         }?;
         result.vdev_stats = vdev_stats;
         Ok(result)
-    }
-
-    #[cfg(not(feature = "memory_metrics"))]
-    pub fn unpack<C>(buf: SlicedCowBytes, csum: IntegrityMode<C>, decompressor: DecompressionTag) -> Result<Self, std::io::Error>
-    where
-        C: ChecksumTrait,
-    {
-        match decompressor {
-            DecompressionTag::None => Self::unpack_uncompressed(buf, csum),
-            _ => Self::unpack_compressed(buf, csum, decompressor),
-        }
     }
 
     fn unpack_uncompressed<C>(buf: SlicedCowBytes, csum: IntegrityMode<C>) -> Result<Self, std::io::Error>
@@ -1469,7 +1330,7 @@ impl PackedChildBuffer {
                 entries_size: 0,
                 is_leaf: true, // Default to leaf for empty buffers
                 system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
-                #[cfg(feature = "memory_metrics")]
+                
                 vdev_stats: None,
             });
         }
@@ -1507,7 +1368,7 @@ impl PackedChildBuffer {
             entries_size,
             buffer,
             is_leaf,
-            #[cfg(feature = "memory_metrics")]
+            
             vdev_stats: None,
         })
     }
@@ -1524,7 +1385,7 @@ impl PackedChildBuffer {
                 entries_size: 0,
                 is_leaf: true,
                 system_storage_preference: AtomicSystemStoragePreference::from(StoragePreference::NONE),
-                #[cfg(feature = "memory_metrics")]
+                
                 vdev_stats: None,
             });
         }
@@ -1565,7 +1426,7 @@ impl PackedChildBuffer {
             entries_size: compressed_size,
             buffer,
             is_leaf,
-            #[cfg(feature = "memory_metrics")]
+            
             vdev_stats: None,
         })
     }
@@ -1682,11 +1543,14 @@ mod tests {
 
     fn check_size(child_buffer: &PackedChildBuffer) {
         let mut buf = Vec::new();
+        let pp = crate::data_management::PreparePack { storage_kind: crate::tree::StorageKind::Memory };
         child_buffer
             .pack(
                 &mut buf,
+                pp,
                 crate::tree::imp::internal::copyless_internal::tests::quick_csum,
                 &crate::compression::CompressionConfiguration::None,
+                None,
             )
             .unwrap();
         assert_eq!(buf.len(), child_buffer.size())
@@ -1750,9 +1614,10 @@ mod tests {
     fn unpack_equality(child_buffer: PackedChildBuffer) {
         let mut buf = Vec::new();
         // buf.extend_from_slice(&[0u8; NODE_ID]);
-        let csum = child_buffer.pack(&mut buf, quick_csum, &crate::compression::CompressionConfiguration::None).unwrap();
+        let pp = crate::data_management::PreparePack { storage_kind: crate::tree::StorageKind::Memory };
+        let csum = child_buffer.pack(&mut buf, pp, quick_csum, &crate::compression::CompressionConfiguration::None, None).unwrap();
 
-        let mut other = PackedChildBuffer::unpack(CowBytes::from(buf).into(), csum, crate::compression::DecompressionTag::None).unwrap();
+        let mut other = PackedChildBuffer::unpack(CowBytes::from(buf).into(), csum, crate::compression::DecompressionTag::None, None).unwrap();
         other.buffer.unpacked();
 
         for (key, (info, val)) in child_buffer.buffer.assert_unpacked() {
@@ -1765,9 +1630,10 @@ mod tests {
     fn unpackless_access(child_buffer: PackedChildBuffer) {
         let mut buf = Vec::new();
         // buf.extend_from_slice(&[0u8; NODE_ID]);
-        let csum = child_buffer.pack(&mut buf, quick_csum, &crate::compression::CompressionConfiguration::None).unwrap();
+        let pp = crate::data_management::PreparePack { storage_kind: crate::tree::StorageKind::Memory };
+        let csum = child_buffer.pack(&mut buf, pp, quick_csum, &crate::compression::CompressionConfiguration::None, None).unwrap();
 
-        let other = PackedChildBuffer::unpack(CowBytes::from(buf).into(), csum, crate::compression::DecompressionTag::None).unwrap();
+        let other = PackedChildBuffer::unpack(CowBytes::from(buf).into(), csum, crate::compression::DecompressionTag::None, None).unwrap();
 
         for (key, (info, val)) in child_buffer.buffer.assert_unpacked() {
             let res = other.get(key).unwrap();
@@ -1779,9 +1645,10 @@ mod tests {
     fn unpackless_iter(child_buffer: PackedChildBuffer) {
         let mut buf = Vec::new();
         // buf.extend_from_slice(&[0u8; NODE_ID]);
-        let csum = child_buffer.pack(&mut buf, quick_csum, &crate::compression::CompressionConfiguration::None).unwrap();
+        let pp = crate::data_management::PreparePack { storage_kind: crate::tree::StorageKind::Memory };
+        let csum = child_buffer.pack(&mut buf, pp, quick_csum, &crate::compression::CompressionConfiguration::None, None).unwrap();
 
-        let other = PackedChildBuffer::unpack(CowBytes::from(buf).into(), csum, crate::compression::DecompressionTag::None).unwrap();
+        let other = PackedChildBuffer::unpack(CowBytes::from(buf).into(), csum, crate::compression::DecompressionTag::None, None).unwrap();
 
         for (idx, (key, tup)) in child_buffer.get_all_messages().enumerate() {
             let res = other.get_all_messages().nth(idx).unwrap();
@@ -1793,8 +1660,9 @@ mod tests {
     fn serialize_deserialize_idempotent(child_buffer: PackedChildBuffer) {
         let mut buf = Vec::new();
         // buf.extend_from_slice(&[0u8; NODE_ID]);
-        let csum = child_buffer.pack(&mut buf, quick_csum, &crate::compression::CompressionConfiguration::None).unwrap();
-        let mut other = PackedChildBuffer::unpack(CowBytes::from(buf).into(), csum, crate::compression::DecompressionTag::None).unwrap();
+        let pp = crate::data_management::PreparePack { storage_kind: crate::tree::StorageKind::Memory };
+        let csum = child_buffer.pack(&mut buf, pp, quick_csum, &crate::compression::CompressionConfiguration::None, None).unwrap();
+        let mut other = PackedChildBuffer::unpack(CowBytes::from(buf).into(), csum, crate::compression::DecompressionTag::None, None).unwrap();
         other.buffer.unpacked();
         assert_eq!(other, child_buffer);
     }
