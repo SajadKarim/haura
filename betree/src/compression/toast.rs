@@ -66,13 +66,9 @@ impl Toast {
 /// compressed=1: data is compressed with simplified LZ-style compression
 impl CompressionState for ToastCompression {
     fn compress_val(&mut self, data: &[u8]) -> Result<Vec<u8>> {
-        let toast_result = if data.len() < self.config.min_compress_size as usize {
-            // Too small to compress
-            let mut result = Vec::new();
-            result.push(0u8); // Not compressed
-            result.extend_from_slice(&(data.len() as u32).to_le_bytes());
-            result.extend_from_slice(data);
-            result
+        let (compressed_data, is_compressed) = if data.len() < self.config.min_compress_size as usize {
+            // Too small to compress - store as-is
+            (data.to_vec(), false)
         } else {
             // Try simplified LZ-style compression (similar to pglz approach)
             let compressed = pglz_compress(data);
@@ -80,32 +76,26 @@ impl CompressionState for ToastCompression {
             let compression_ratio = (compressed.len() * 100) / data.len();
             
             if compression_ratio >= self.config.max_ratio_percent as usize {
-                // Compression not worthwhile
-                let mut result = Vec::new();
-                result.push(0u8); // Not compressed
-                result.extend_from_slice(&(data.len() as u32).to_le_bytes());
-                result.extend_from_slice(data);
-                result
+                // Compression not worthwhile - store as-is
+                (data.to_vec(), false)
             } else {
                 // Use compressed version
-                let mut result = Vec::new();
-                result.push(1u8); // Compressed
-                result.extend_from_slice(&(data.len() as u32).to_le_bytes());
-                result.extend_from_slice(&compressed);
-                result
+                (compressed, true)
             }
         };
 
-        // Add size headers like other compression algorithms
+        // Follow the same format as other compression algorithms: [original_size: u32][compressed_size: u32][flag: u8][data...]
         let size = data.len() as u32;
-        let comlen = toast_result.len() as u32;
+        let payload_size = 1 + compressed_data.len(); // 1 byte for flag + data
+        let comlen = payload_size as u32;
 
-        let mut final_result = Vec::with_capacity(4 + 4 + toast_result.len());
-        final_result.extend_from_slice(&size.to_le_bytes());
-        final_result.extend_from_slice(&comlen.to_le_bytes());
-        final_result.extend_from_slice(&toast_result);
+        let mut result = Vec::with_capacity(4 + 4 + payload_size);
+        result.extend_from_slice(&size.to_le_bytes());
+        result.extend_from_slice(&comlen.to_le_bytes());
+        result.push(if is_compressed { 1u8 } else { 0u8 }); // Compression flag
+        result.extend_from_slice(&compressed_data);
 
-        Ok(final_result)
+        Ok(result)
     }
 
     fn compress_buf(&mut self, data: Buf) -> Result<Buf> {
@@ -113,17 +103,36 @@ impl CompressionState for ToastCompression {
         use crate::vdev::Block;
         use std::io::Write;
         
-        let compressed_data = self.compress_val(data.as_ref())?;
+        let (compressed_data, is_compressed) = if data.len() < self.config.min_compress_size as usize {
+            // Too small to compress - store as-is
+            (data.as_ref().to_vec(), false)
+        } else {
+            // Try simplified LZ-style compression (similar to pglz approach)
+            let compressed = pglz_compress(data.as_ref());
+            
+            let compression_ratio = (compressed.len() * 100) / data.len();
+            
+            if compression_ratio >= self.config.max_ratio_percent as usize {
+                // Compression not worthwhile - store as-is
+                (data.as_ref().to_vec(), false)
+            } else {
+                // Use compressed version
+                (compressed, true)
+            }
+        };
 
-        let size = data.as_ref().len() as u32;
-        let comlen = compressed_data.len() as u32;
+        // Follow the same format as other compression algorithms: [original_size: u32][compressed_size: u32][flag: u8][data...]
+        let size = data.len() as u32;
+        let payload_size = 1 + compressed_data.len(); // 1 byte for flag + data
+        let comlen = payload_size as u32;
 
         let mut buf = BufWrite::with_capacity(Block::round_up_from_bytes(
-            4 + 4 + comlen, // total metadata and compressed payload
+            4 + 4 + payload_size as u32, // total metadata and payload
         ));
 
         buf.write_all(&size.to_le_bytes())?;
         buf.write_all(&comlen.to_le_bytes())?;
+        buf.write_all(&[if is_compressed { 1u8 } else { 0u8 }])?; // Compression flag
         buf.write_all(&compressed_data)?;
 
         Ok(buf.into_buf())
@@ -132,7 +141,7 @@ impl CompressionState for ToastCompression {
 
 impl DecompressionState for ToastDecompression {
     fn decompress_val(&mut self, data: &[u8]) -> Result<SlicedCowBytes> {
-        if data.len() < 8 {
+        if data.len() < 9 { // 4 + 4 + 1 minimum
             return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Input too short").into());
         }
 
@@ -143,24 +152,20 @@ impl DecompressionState for ToastDecompression {
             return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Compressed payload truncated").into());
         }
 
-        let toast_data = &data[8..8 + comp_len];
-
-        if toast_data.len() < 5 {
-            return Ok(SlicedCowBytes::from(toast_data.to_vec()));
+        let payload = &data[8..8 + comp_len];
+        
+        if payload.is_empty() {
+            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Empty payload").into());
         }
 
-        let mut pos = 0;
-        let compressed = toast_data[pos] != 0;
-        pos += 1;
-
-        let original_size = u32::from_le_bytes([toast_data[pos], toast_data[pos + 1], toast_data[pos + 2], toast_data[pos + 3]]) as usize;
-        pos += 4;
+        let compressed = payload[0] != 0;
+        let compressed_data = &payload[1..];
 
         if compressed {
-            let decompressed = pglz_decompress(&toast_data[pos..], original_size)?;
+            let decompressed = pglz_decompress(compressed_data, uncomp_size)?;
             Ok(SlicedCowBytes::from(decompressed))
         } else {
-            Ok(SlicedCowBytes::from(toast_data[pos..].to_vec()))
+            Ok(SlicedCowBytes::from(compressed_data.to_vec()))
         }
     }
 
@@ -169,22 +174,9 @@ impl DecompressionState for ToastDecompression {
         use crate::vdev::Block;
         use std::io::Write;
         
-        if data.len() < 8 {
-            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Input too short").into());
-        }
+        let decompressed = self.decompress_val(data.as_ref())?;
 
-        let uncomp_size = u32::from_le_bytes(data[0..4].try_into().unwrap()) as usize;
-        let comp_len = u32::from_le_bytes(data[4..8].try_into().unwrap()) as usize;
-
-        if data.len() < 8 + comp_len {
-            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Compressed payload truncated").into());
-        }
-
-        let compressed = &data[8..8 + comp_len];
-
-        let decompressed = self.decompress_val(compressed)?;
-
-        let mut buf = BufWrite::with_capacity(Block::round_up_from_bytes(uncomp_size as u32));
+        let mut buf = BufWrite::with_capacity(Block::round_up_from_bytes(decompressed.len() as u32));
         buf.write_all(decompressed.as_ref())?;
         Ok(buf.into_buf())
     }
@@ -334,7 +326,18 @@ mod tests {
         let mut compressor = toast.create_compressor().unwrap();
         let result = compressor.compress_val(small_data).unwrap();
         
-        // Should be stored uncompressed
-        assert_eq!(result[0], 0u8); // Not compressed flag
+        // Check the format: [original_size: u32][compressed_size: u32][flag: u8][data...]
+        assert_eq!(result.len(), 4 + 4 + 1 + small_data.len()); // Headers + flag + data
+        
+        let original_size = u32::from_le_bytes([result[0], result[1], result[2], result[3]]);
+        let compressed_size = u32::from_le_bytes([result[4], result[5], result[6], result[7]]);
+        let compression_flag = result[8];
+        
+        assert_eq!(original_size, small_data.len() as u32);
+        assert_eq!(compressed_size, (1 + small_data.len()) as u32); // flag + data
+        assert_eq!(compression_flag, 0u8); // Not compressed flag
+        
+        // Verify the data is stored uncompressed
+        assert_eq!(&result[9..], small_data);
     }
 }
